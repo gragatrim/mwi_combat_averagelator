@@ -68,6 +68,8 @@ export interface PlayerStats {
   hitpointsSpent: Record<string, number>;
   /** Total pre-clamp damage dealt (includes overkill). */
   totalPreClampDamageDealt: number;
+  /** Total damage taken from enemies. */
+  totalDamageTaken: number;
   /** Drop rate multiplier for this player. */
   dropRateMultiplier: number;
   /** Rare find multiplier for this player. */
@@ -92,6 +94,8 @@ export interface SummaryRates {
   preClampDps: number;
   /** Average healing per second done to allies. */
   hps: number;
+  /** Average damage taken per second from enemies. */
+  dtps: number;
   /** Average mana consumed per second. */
   manaPerSecond: number;
   /** Whether mana is sustainable (regen >= consumption over steady state). */
@@ -226,6 +230,7 @@ class SimResult {
         outOfManaTimeNs: 0,
         hitpointsSpent: {},
         totalPreClampDamageDealt: 0,
+        totalDamageTaken: 0,
         dropRateMultiplier: 1.0,
         rareFindMultiplier: 1.0,
         combatDropQuantity: 0,
@@ -259,6 +264,12 @@ class SimResult {
   addPreClampDamageDealt(playerHrid: string, amount: number): void {
     this.initPlayer(playerHrid);
     this.playerStats[playerHrid].totalPreClampDamageDealt += amount;
+  }
+
+  /** Records damage taken by a player. */
+  addDamageTaken(playerHrid: string, amount: number): void {
+    this.initPlayer(playerHrid);
+    this.playerStats[playerHrid].totalDamageTaken += amount;
   }
 
   /** Records healing received by a player from a source. */
@@ -367,6 +378,7 @@ class SimResult {
         dps: 0,
         preClampDps: 0,
         hps: 0,
+        dtps: 0,
         manaPerSecond: 0,
         manaSustainable: true,
         avgKillTimeSec: 0,
@@ -401,6 +413,7 @@ class SimResult {
       dps: aliveSeconds > 0 ? stats.totalDamageDealt / aliveSeconds : 0,
       preClampDps: aliveSeconds > 0 ? stats.totalPreClampDamageDealt / aliveSeconds : 0,
       hps: aliveSeconds > 0 ? stats.totalHealingReceived / aliveSeconds : 0,
+      dtps: aliveSeconds > 0 ? stats.totalDamageTaken / aliveSeconds : 0,
       manaPerSecond,
       manaSustainable: !stats.ranOutOfMana,
       avgKillTimeSec,
@@ -455,6 +468,7 @@ class SimResult {
       );
       destStats.totalDamageDealt = playerStats.totalDamageDealt * ratio;
       destStats.totalPreClampDamageDealt = playerStats.totalPreClampDamageDealt * ratio;
+      destStats.totalDamageTaken = playerStats.totalDamageTaken * ratio;
       destStats.totalHealingReceived =
         playerStats.totalHealingReceived * ratio;
       destStats.totalManaUsed = playerStats.totalManaUsed * ratio;

@@ -277,6 +277,7 @@ export function useZoneRanking(): UseZoneRankingReturn {
               dps: 0,
               preClampDps: 0,
               hps: 0,
+              dtps: 0,
               manaPerSecond: 0,
               manaSustainable: true,
               avgKillTimeSec: 0,

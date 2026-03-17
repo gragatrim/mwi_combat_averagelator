@@ -937,10 +937,18 @@ class DeterministicSimulator {
     );
     if (aliveTargets.length === 0) return;
 
-    // Determine target using threat-weighted selection (deterministic: highest threat)
+    // Monster → multiple players: use threat-weighted distribution
+    // This distributes damage proportionally to each player's threat share,
+    // which is the expected-value equivalent of random targeting by threat.
+    if (!source.isPlayer && aliveTargets.length > 1 && !this.getDominantThreatTarget(aliveTargets)) {
+      this.processAutoAttackDistributed(source, targets, aliveTargets);
+      return;
+    }
+
+    // Single-target path: player attacks, solo target, or dominant threat
     let target = aliveTargets[0];
     if (!source.isPlayer && aliveTargets.length > 1) {
-      target = this.selectTargetByThreat(aliveTargets);
+      target = this.getDominantThreatTarget(aliveTargets) ?? aliveTargets[0];
     }
 
     // Deterministic parry: reduces incoming damage and deals counter-damage.
@@ -966,6 +974,11 @@ class DeterministicSimulator {
       source.isPlayer ? source.hrid : "enemy",
       actualDamage
     );
+
+    // Track damage taken by player
+    if (target.isPlayer) {
+      this.simResult.addDamageTaken(target.hrid, actualDamage);
+    }
 
     // Overkill tracking for monsters
     if (!target.isPlayer) {
@@ -1036,6 +1049,11 @@ class DeterministicSimulator {
           actualMayhemDamage
         );
 
+        // Track damage taken by player
+        if (otherTarget.isPlayer) {
+          this.simResult.addDamageTaken(otherTarget.hrid, actualMayhemDamage);
+        }
+
         // Overkill tracking for monsters
         if (!otherTarget.isPlayer) {
           this.encounterPreClampDamage += mayhemDamage;
@@ -1072,6 +1090,11 @@ class DeterministicSimulator {
           source.isPlayer ? source.hrid : "enemy",
           actualPierceDamage
         );
+
+        // Track damage taken by player
+        if (nextTarget.isPlayer) {
+          this.simResult.addDamageTaken(nextTarget.hrid, actualPierceDamage);
+        }
 
         // Overkill tracking for monsters
         if (!nextTarget.isPlayer) {
@@ -1153,6 +1176,194 @@ class DeterministicSimulator {
       (attackResult.thornDamageDone > 0 ||
         attackResult.retaliationDamageDone > 0)
     ) {
+      source.combatDetails.currentHitpoints = 0;
+      this.eventQueue.clearEventsForUnit(source);
+    }
+
+    if (!this.checkEncounterEnd()) {
+      this.addNextAttackEvent(source);
+    }
+  }
+
+  /**
+   * Threat-weighted distributed auto-attack for monsters attacking multiple players.
+   * Instead of picking one target, distributes damage proportionally to each player's
+   * threat share. This is the true expected-value approach for equal-threat parties.
+   */
+  private processAutoAttackDistributed(
+    source: CombatUnit,
+    allTargets: CombatUnit[],
+    aliveTargets: CombatUnit[]
+  ): void {
+    const threatWeights = this.computeThreatWeights(aliveTargets);
+    const parryChance = CombatUtilities.expectedParryChance(allTargets);
+
+    // Aggregate source-facing effects across all targets
+    let totalLifeStealHealed = 0;
+    let totalManaLeechGained = 0;
+    let totalThornDamage = 0;
+    let totalRetaliationDamage = 0;
+    let anySourceDeath = false;
+
+    for (const target of aliveTargets) {
+      const weight = threatWeights.get(target) ?? 0;
+      if (weight <= 0) continue;
+
+      const attackResult = CombatUtilities.processAttack(source, target);
+
+      // Primary damage scaled by weight and parry
+      const effectiveDamage = attackResult.damageDone * (1 - parryChance) * weight;
+      const actualDamage = Math.min(
+        effectiveDamage,
+        target.combatDetails.currentHitpoints
+      );
+      target.combatDetails.currentHitpoints -= actualDamage;
+
+      this.simResult.addDamageDealt("enemy", actualDamage);
+      this.simResult.addDamageTaken(target.hrid, actualDamage);
+
+      // CC scaled by weight
+      if (attackResult.expectedStunDuration > 0) {
+        this.addStunDelay(target, attackResult.expectedStunDuration * weight);
+      }
+      if (attackResult.expectedBlindDuration > 0) {
+        this.addBlindDelay(target, attackResult.expectedBlindDuration * weight);
+      }
+      if (attackResult.expectedSilenceDuration > 0) {
+        this.addSilenceDelay(target, attackResult.expectedSilenceDuration * weight);
+      }
+
+      // Curse/weaken scaled by weight (applied per-target)
+      if (attackResult.expectedCurseApplied > 0) {
+        const scaledResult = { ...attackResult, expectedCurseApplied: attackResult.expectedCurseApplied * weight };
+        this.applyCurse(source, target, scaledResult);
+      }
+      if (attackResult.expectedWeakenApplied > 0) {
+        const scaledResult = { ...attackResult, expectedWeakenApplied: attackResult.expectedWeakenApplied * weight };
+        this.applyWeaken(source, target, scaledResult);
+      }
+
+      // Aggregate source-facing effects (weighted)
+      totalLifeStealHealed += attackResult.lifeStealHealed * weight;
+      totalManaLeechGained += attackResult.manaLeechGained * weight;
+      totalThornDamage += attackResult.thornDamageDone * weight;
+      totalRetaliationDamage += attackResult.retaliationDamageDone * weight;
+
+      // Mayhem: weighted contribution from this potential primary target
+      const mayhemChance = source.combatDetails.combatStats.mayhem;
+      if (mayhemChance > 0 && aliveTargets.length > 1) {
+        const missRetryProb = (1 - attackResult.hitChance) * mayhemChance;
+        let retryMult = missRetryProb;
+        for (const otherTarget of aliveTargets) {
+          if (otherTarget === target) continue;
+          if (retryMult < 0.001) break;
+          const mayhemDamage = attackResult.damageDone * retryMult * (1 - parryChance) * weight;
+          const actualMayhemDamage = Math.min(
+            mayhemDamage,
+            otherTarget.combatDetails.currentHitpoints
+          );
+          otherTarget.combatDetails.currentHitpoints -= actualMayhemDamage;
+          this.simResult.addDamageDealt("enemy", actualMayhemDamage);
+          this.simResult.addDamageTaken(otherTarget.hrid, actualMayhemDamage);
+
+          if (otherTarget.combatDetails.currentHitpoints <= 0) {
+            otherTarget.combatDetails.currentHitpoints = 0;
+            this.eventQueue.clearEventsForUnit(otherTarget);
+          }
+          retryMult *= missRetryProb;
+        }
+      }
+
+      // Pierce: weighted contribution
+      const pierceChance = source.combatDetails.combatStats.pierce;
+      if (pierceChance > 0 && aliveTargets.length > 1) {
+        let pierceMult = attackResult.hitChance * pierceChance;
+        for (const nextTarget of aliveTargets) {
+          if (nextTarget === target) continue;
+          if (pierceMult <= 0.001) break;
+          const pierceDamage = attackResult.damageDone * pierceMult * weight;
+          const actualPierceDamage = Math.min(
+            pierceDamage,
+            nextTarget.combatDetails.currentHitpoints
+          );
+          nextTarget.combatDetails.currentHitpoints -= actualPierceDamage;
+          this.simResult.addDamageDealt("enemy", actualPierceDamage);
+          this.simResult.addDamageTaken(nextTarget.hrid, actualPierceDamage);
+
+          if (nextTarget.combatDetails.currentHitpoints <= 0) {
+            nextTarget.combatDetails.currentHitpoints = 0;
+            this.eventQueue.clearEventsForUnit(nextTarget);
+          }
+          pierceMult *= attackResult.hitChance * pierceChance;
+        }
+      }
+
+      // Check target death
+      if (target.combatDetails.currentHitpoints <= 0) {
+        target.combatDetails.currentHitpoints = 0;
+        this.eventQueue.clearEventsForUnit(target);
+      }
+
+      if (attackResult.thornDamageDone > 0 || attackResult.retaliationDamageDone > 0) {
+        anySourceDeath = true;
+      }
+    }
+
+    // Apply aggregated source-facing effects
+    if (totalLifeStealHealed > 0) {
+      const healed = source.addHitpoints(totalLifeStealHealed * (1 - parryChance));
+      this.simResult.addHealingReceived(source.hrid, "lifesteal", healed);
+    }
+    if (totalManaLeechGained > 0) {
+      source.addManapoints(totalManaLeechGained * (1 - parryChance));
+    }
+    if (totalThornDamage > 0) {
+      const thornDmg = Math.min(totalThornDamage, source.combatDetails.currentHitpoints);
+      source.combatDetails.currentHitpoints -= thornDmg;
+    }
+    if (totalRetaliationDamage > 0) {
+      const retDmg = Math.min(totalRetaliationDamage, source.combatDetails.currentHitpoints);
+      source.combatDetails.currentHitpoints -= retDmg;
+    }
+
+    // Parry counter-damage (unchanged — all parry units attack source)
+    if (parryChance > 0) {
+      const aliveParryUnits = allTargets.filter(
+        (u) =>
+          u &&
+          u.combatDetails.currentHitpoints > 0 &&
+          u.combatDetails.combatStats.parry > 0
+      );
+      const numParryUnits = aliveParryUnits.length;
+      if (numParryUnits > 0) {
+        for (const parryUnit of aliveParryUnits) {
+          const unitParryChance =
+            parryUnit.combatDetails.combatStats.parry / numParryUnits;
+          const counterResult = CombatUtilities.processAttack(parryUnit, source);
+          const counterDamage = Math.min(
+            counterResult.damageDone * unitParryChance,
+            source.combatDetails.currentHitpoints
+          );
+          if (counterDamage > 0) {
+            source.combatDetails.currentHitpoints -= counterDamage;
+            this.simResult.addDamageDealt(
+              parryUnit.isPlayer ? parryUnit.hrid : "enemy",
+              counterDamage
+            );
+          }
+        }
+      }
+    }
+
+    // Fury is source-facing (unchanged)
+    // Use a representative attack result for fury calculation
+    if (aliveTargets.length > 0) {
+      const repResult = CombatUtilities.processAttack(source, aliveTargets[0]);
+      this.applyFury(source, repResult);
+    }
+
+    // Source death check
+    if (anySourceDeath && source.combatDetails.currentHitpoints <= 0) {
       source.combatDetails.currentHitpoints = 0;
       this.eventQueue.clearEventsForUnit(source);
     }
@@ -1538,6 +1749,11 @@ class DeterministicSimulator {
           : "enemy",
         damage
       );
+    }
+
+    // Track damage taken by player
+    if (event.target.isPlayer) {
+      this.simResult.addDamageTaken(event.target.hrid, damage);
     }
 
     // Overkill tracking for monsters
@@ -2323,27 +2539,42 @@ class DeterministicSimulator {
     // Deterministic parry for abilities: compute once
     const parryChance = CombatUtilities.expectedParryChance(targets);
 
+    // For single-target monster abilities with no dominant threat target,
+    // distribute across all alive targets weighted by threat proportion.
+    // For AoE or player abilities, use the original logic (weight = 1.0).
     let processedTargets: CombatUnit[];
+    let threatWeightMap: Map<CombatUnit, number> | null = null;
     if (abilityEffect.targetType === "allEnemies") {
       processedTargets = [...aliveTargets];
+    } else if (
+      !source.isPlayer &&
+      aliveTargets.length > 1 &&
+      !this.getDominantThreatTarget(aliveTargets)
+    ) {
+      // Distribute single-target ability across all alive targets by threat weight
+      processedTargets = [...aliveTargets];
+      threatWeightMap = this.computeThreatWeights(aliveTargets);
     } else {
-      // Single target - use threat-weighted selection for monster abilities
+      // Single target - dominant threat or player ability
       let singleTarget = aliveTargets[0];
       if (!source.isPlayer && aliveTargets.length > 1) {
-        singleTarget = this.selectTargetByThreat(aliveTargets);
+        singleTarget = this.getDominantThreatTarget(aliveTargets) ?? aliveTargets[0];
       }
       processedTargets = [singleTarget];
     }
 
     for (const target of processedTargets) {
+      // Threat weight: 1.0 for non-distributed cases, proportional for distributed
+      const threatWeight = threatWeightMap?.get(target) ?? 1.0;
+
       const attackResult = CombatUtilities.processAttack(
         source,
         target,
         abilityEffect
       );
 
-      // Scale by proc rate (for blaze/bloom procs)
-      const scaledDamage = attackResult.damageDone * procScale;
+      // Scale by proc rate (for blaze/bloom procs) and threat weight
+      const scaledDamage = attackResult.damageDone * procScale * threatWeight;
 
       // Scale by (1 - parryChance) for parry mitigation
       const effectiveDamage = scaledDamage * (1 - parryChance);
@@ -2359,6 +2590,11 @@ class DeterministicSimulator {
         actualDamage
       );
 
+      // Track damage taken by player
+      if (target.isPlayer) {
+        this.simResult.addDamageTaken(target.hrid, actualDamage);
+      }
+
       // Overkill tracking for monsters
       if (!target.isPlayer) {
         this.encounterPreClampDamage += effectiveDamage;
@@ -2368,9 +2604,9 @@ class DeterministicSimulator {
         }
       }
 
-      // HP drain
+      // HP drain (scaled by threat weight)
       if (attackResult.hpDrained > 0) {
-        const healAmount = attackResult.hpDrained * procScale * (1 - parryChance);
+        const healAmount = attackResult.hpDrained * procScale * threatWeight * (1 - parryChance);
         source.addHitpoints(healAmount);
         this.simResult.addHealingReceived(
           source.hrid,
@@ -2391,14 +2627,14 @@ class DeterministicSimulator {
         }
       }
 
-      // DoT (scaled by procScale)
+      // DoT (scaled by procScale and threat weight)
       if (attackResult.damageOverTime && attackResult.damageDone > 0) {
         const dot = attackResult.damageOverTime;
         const dotEvent = new DamageOverTimeEvent(
           this.simulationTime + DOT_TICK_INTERVAL,
           source,
           target,
-          dot.damage * procScale,
+          dot.damage * procScale * threatWeight,
           dot.totalTicks,
           1,
           dot.combatStyleHrid
@@ -2406,54 +2642,65 @@ class DeterministicSimulator {
         this.eventQueue.addEvent(dotEvent);
       }
 
-      // CC as fractional delays (separated by type, scaled by procScale)
+      // CC as fractional delays (separated by type, scaled by procScale and threat weight)
       if (attackResult.expectedStunDuration > 0) {
         this.addStunDelay(
           target,
-          attackResult.expectedStunDuration * procScale
+          attackResult.expectedStunDuration * procScale * threatWeight
         );
       }
       if (attackResult.expectedBlindDuration > 0) {
         this.addBlindDelay(
           target,
-          attackResult.expectedBlindDuration * procScale
+          attackResult.expectedBlindDuration * procScale * threatWeight
         );
       }
       if (attackResult.expectedSilenceDuration > 0) {
         this.addSilenceDelay(
           target,
-          attackResult.expectedSilenceDuration * procScale
+          attackResult.expectedSilenceDuration * procScale * threatWeight
         );
       }
 
-      // Curse (deterministic)
-      this.applyCurse(source, target, attackResult);
+      // Curse (deterministic, scaled by threat weight)
+      if (threatWeightMap && attackResult.expectedCurseApplied > 0) {
+        const scaledResult = { ...attackResult, expectedCurseApplied: attackResult.expectedCurseApplied * threatWeight };
+        this.applyCurse(source, target, scaledResult);
+      } else {
+        this.applyCurse(source, target, attackResult);
+      }
 
-      // Weaken (deterministic)
-      this.applyWeaken(source, target, attackResult);
+      // Weaken (deterministic, scaled by threat weight)
+      if (threatWeightMap && attackResult.expectedWeakenApplied > 0) {
+        const scaledResult = { ...attackResult, expectedWeakenApplied: attackResult.expectedWeakenApplied * threatWeight };
+        this.applyWeaken(source, target, scaledResult);
+      } else {
+        this.applyWeaken(source, target, attackResult);
+      }
 
-      // Thorns
+      // Thorns (scaled by threat weight)
       if (attackResult.thornDamageDone > 0) {
         const thornDamage = Math.min(
-          attackResult.thornDamageDone * procScale,
+          attackResult.thornDamageDone * procScale * threatWeight,
           source.combatDetails.currentHitpoints
         );
         source.combatDetails.currentHitpoints -= thornDamage;
       }
 
-      // Retaliation
+      // Retaliation (scaled by threat weight)
       if (attackResult.retaliationDamageDone > 0) {
         const retDamage = Math.min(
-          attackResult.retaliationDamageDone * procScale,
+          attackResult.retaliationDamageDone * procScale * threatWeight,
           source.combatDetails.currentHitpoints
         );
         source.combatDetails.currentHitpoints -= retDamage;
       }
 
-      // Pierce for abilities
+      // Pierce for abilities (scaled by threat weight for distributed targeting)
       if (
         abilityEffect.pierceChance > 0 &&
-        abilityEffect.targetType === "enemy"
+        abilityEffect.targetType === "enemy" &&
+        !threatWeightMap  // Skip pierce when distributing (already hitting all targets)
       ) {
         let pierceMult = attackResult.hitChance * abilityEffect.pierceChance;
         for (const nextTarget of aliveTargets) {
@@ -2478,6 +2725,11 @@ class DeterministicSimulator {
             source.isPlayer ? source.hrid : "enemy",
             actualPierceDamage
           );
+
+          // Track damage taken by player
+          if (nextTarget.isPlayer) {
+            this.simResult.addDamageTaken(nextTarget.hrid, actualPierceDamage);
+          }
 
           // Overkill tracking for monsters
           if (!nextTarget.isPlayer) {
@@ -2864,21 +3116,59 @@ class DeterministicSimulator {
   // ===========================================================================
 
   /**
-   * Deterministic threat-weighted target selection.
-   * Instead of random, picks the target with the highest threat value
-   * (which is what happens most often in expectation for the primary target).
+   * Compute threat-weight distribution for alive targets.
+   * Returns a Map of target → weight where weights sum to 1.0.
+   * If one target has strictly highest threat, they get weight ≈ 1.0.
+   * With equal threat, each gets 1/N.
    */
-  private selectTargetByThreat(aliveTargets: CombatUnit[]): CombatUnit {
-    let maxThreat = -1;
-    let selected = aliveTargets[0];
+  private computeThreatWeights(aliveTargets: CombatUnit[]): Map<CombatUnit, number> {
+    const weights = new Map<CombatUnit, number>();
+    let totalThreat = 0;
     for (const target of aliveTargets) {
-      const threat = target.combatDetails.combatStats.threat;
-      if (threat > maxThreat) {
-        maxThreat = threat;
-        selected = target;
+      totalThreat += target.combatDetails.combatStats.threat;
+    }
+    if (totalThreat <= 0) {
+      // Fallback: equal distribution
+      const equalWeight = 1 / aliveTargets.length;
+      for (const target of aliveTargets) {
+        weights.set(target, equalWeight);
+      }
+    } else {
+      for (const target of aliveTargets) {
+        weights.set(target, target.combatDetails.combatStats.threat / totalThreat);
       }
     }
-    return selected;
+    return weights;
+  }
+
+  /**
+   * Check if threat distribution should use single-target (one dominant target).
+   * Returns the dominant target if one has strictly > 50% of total threat,
+   * otherwise null (meaning distributed targeting should be used).
+   */
+  private getDominantThreatTarget(aliveTargets: CombatUnit[]): CombatUnit | null {
+    let totalThreat = 0;
+    let maxThreat = -1;
+    let maxTarget = aliveTargets[0];
+    for (const target of aliveTargets) {
+      const threat = target.combatDetails.combatStats.threat;
+      totalThreat += threat;
+      if (threat > maxThreat) {
+        maxThreat = threat;
+        maxTarget = target;
+      }
+    }
+    // If one target has strictly more threat than all others combined,
+    // use single-target (they'd get >50% weight anyway)
+    // Check for strict dominance: one target has MORE threat than any other
+    let hasDominant = true;
+    for (const target of aliveTargets) {
+      if (target !== maxTarget && target.combatDetails.combatStats.threat >= maxThreat) {
+        hasDominant = false;
+        break;
+      }
+    }
+    return hasDominant && aliveTargets.length > 1 ? maxTarget : null;
   }
 }
 
