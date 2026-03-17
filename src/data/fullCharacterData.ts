@@ -1,0 +1,467 @@
+// =============================================================================
+// Full Character Data Parser - Parses the complete MWI character export
+// =============================================================================
+// Handles the full character data format (from WebSocket init_character_data)
+// which includes multiple combat loadouts, skill levels, house rooms,
+// achievements, and labyrinth state.
+//
+// Key difference from Toolasha export: contains characterLoadoutMap with
+// multiple named loadouts, each with their own equipment, abilities,
+// consumables, and triggers.
+
+import type {
+  PlayerConfig,
+  EquipmentDTO,
+  ConsumableDTO,
+  AbilityDTO,
+  TriggerData,
+  HouseRoomLevels,
+  AchievementMap,
+  EquipmentSlotHrid,
+  GameData,
+} from "../engine/types";
+
+// =============================================================================
+// Types
+// =============================================================================
+
+/** A named combat loadout extracted from full character data. */
+export interface CombatLoadout {
+  id: string;
+  name: string;
+  /** Full PlayerConfig for this loadout (ready for simulation). */
+  config: PlayerConfig;
+}
+
+/** Parsed result from full character data. */
+export interface FullCharacterData {
+  /** Player name/hrid. */
+  hrid: string;
+  /** Combat loadouts (different equipment/ability setups). */
+  combatLoadouts: CombatLoadout[];
+  /** Labyrinth crate selections from the character's current labyrinth state. */
+  labyrinthCrates: {
+    coffeeCrate: string;
+    foodCrate: string;
+    teaCrate: string;
+  };
+  /** Labyrinth per-monster loadout assignments (monster hrid → loadout id). */
+  labyrinthMonsterLoadouts: Record<string, string>;
+  /** All trained ability hrids → levels (from characterAbilities). */
+  abilityLevels: Map<string, number>;
+  /** Equipment slot → unique items across all combat loadouts. */
+  gearPool: Map<string, EquipmentDTO[]>;
+}
+
+// =============================================================================
+// Skill hrid to level property mapping
+// =============================================================================
+
+const SKILL_HRID_TO_LEVEL: Record<string, keyof PlayerConfig> = {
+  "/skills/stamina": "staminaLevel",
+  "/skills/intelligence": "intelligenceLevel",
+  "/skills/attack": "attackLevel",
+  "/skills/melee": "meleeLevel",
+  "/skills/defense": "defenseLevel",
+  "/skills/ranged": "rangedLevel",
+  "/skills/magic": "magicLevel",
+};
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+/**
+ * Parse full character data JSON into structured combat loadouts.
+ * Returns all combat loadouts, each as a complete PlayerConfig.
+ */
+export function parseFullCharacterData(
+  jsonString: string,
+  gameData: GameData
+): FullCharacterData {
+  let data: Record<string, any>;
+  try {
+    data = JSON.parse(jsonString);
+  } catch (e) {
+    throw new Error(
+      `Failed to parse character data JSON: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error("Character data must be a non-null JSON object.");
+  }
+
+  // Validate it's full char data (has characterLoadoutMap)
+  if (!data.characterLoadoutMap) {
+    throw new Error(
+      "This doesn't look like full character data. Missing characterLoadoutMap. " +
+        "Please paste the full character data export, not the Toolasha/combat-sim export."
+    );
+  }
+
+  // --- Player name ---
+  const hrid = data.character?.name ?? "player";
+
+  // --- Shared player data ---
+  const skills = parseSkills(data.characterSkills);
+  const houseRooms = parseHouseRooms(data.characterHouseRoomMap);
+  const achievements = parseAchievements(data.characterAchievements);
+
+  // Build ability level lookup from characterAbilities
+  const abilityLevels = new Map<string, number>();
+  if (Array.isArray(data.characterAbilities)) {
+    for (const ab of data.characterAbilities) {
+      if (ab?.abilityHrid) {
+        abilityLevels.set(ab.abilityHrid, ab.level ?? 1);
+      }
+    }
+  }
+
+  // --- Parse combat loadouts ---
+  const combatLoadouts: CombatLoadout[] = [];
+  const loadoutMap = data.characterLoadoutMap as Record<string, any>;
+
+  for (const [id, loadout] of Object.entries(loadoutMap)) {
+    if (loadout.actionTypeHrid !== "/action_types/combat") continue;
+
+    const config = parseLoadoutToConfig(
+      loadout,
+      hrid,
+      skills,
+      houseRooms,
+      achievements,
+      abilityLevels,
+      gameData
+    );
+
+    combatLoadouts.push({
+      id,
+      name: loadout.name ?? `Loadout ${id}`,
+      config,
+    });
+  }
+
+  // --- Labyrinth crate state ---
+  const lab = data.labyrinth ?? {};
+  const labyrinthCrates = {
+    coffeeCrate: lab.coffeeCrateItemHrid ?? "",
+    foodCrate: lab.foodCrateItemHrid ?? "",
+    teaCrate: lab.teaCrateItemHrid ?? "",
+  };
+
+  // --- Labyrinth per-monster loadout assignments ---
+  const labyrinthMonsterLoadouts = parseLabyrinthMonsterLoadouts(
+    data.characterSetting,
+    combatLoadouts
+  );
+
+  // --- Build gear pool across all combat loadouts ---
+  const gearPool = buildGearPool(combatLoadouts);
+
+  return { hrid, combatLoadouts, labyrinthCrates, labyrinthMonsterLoadouts, abilityLevels, gearPool };
+}
+
+// =============================================================================
+// Loadout → PlayerConfig
+// =============================================================================
+
+function parseLoadoutToConfig(
+  loadout: any,
+  hrid: string,
+  skills: Record<string, number>,
+  houseRooms: HouseRoomLevels,
+  achievements: AchievementMap,
+  abilityLevels: Map<string, number>,
+  gameData: GameData
+): PlayerConfig {
+  // --- Equipment from wearableMap ---
+  const equipment = parseWearableMap(loadout.wearableMap);
+
+  // --- Food & Drinks ---
+  const food = parseConsumableHrids(
+    loadout.foodItemHrids,
+    loadout.consumableCombatTriggersMap
+  );
+  const drinks = parseConsumableHrids(
+    loadout.drinkItemHrids,
+    loadout.consumableCombatTriggersMap
+  );
+
+  // --- Abilities from abilityMap ---
+  const { abilities, specialAbility } = parseAbilityMap(
+    loadout.abilityMap,
+    loadout.abilityCombatTriggersMap,
+    abilityLevels,
+    gameData
+  );
+
+  return {
+    hrid,
+    staminaLevel: skills.staminaLevel ?? 1,
+    intelligenceLevel: skills.intelligenceLevel ?? 1,
+    attackLevel: skills.attackLevel ?? 1,
+    meleeLevel: skills.meleeLevel ?? 1,
+    defenseLevel: skills.defenseLevel ?? 1,
+    rangedLevel: skills.rangedLevel ?? 1,
+    magicLevel: skills.magicLevel ?? 1,
+    equipment,
+    food,
+    drinks,
+    abilities,
+    specialAbility,
+    houseRooms,
+    achievements,
+  };
+}
+
+// =============================================================================
+// Wearable Map Parser
+// =============================================================================
+
+/**
+ * Parse wearableMap entries like:
+ * "/item_locations/back" => "77022::/item_locations/inventory::/items/enchanted_cloak_refined::11"
+ */
+function parseWearableMap(
+  wearableMap: Record<string, string> | undefined
+): Partial<Record<EquipmentSlotHrid | string, EquipmentDTO | null>> {
+  const equipment: Partial<Record<EquipmentSlotHrid | string, EquipmentDTO | null>> = {};
+  if (!wearableMap) return equipment;
+
+  for (const [locationHrid, value] of Object.entries(wearableMap)) {
+    if (!value) continue;
+
+    // Parse "charId::location::itemHrid::enhancementLevel"
+    const parts = value.split("::");
+    if (parts.length < 4) continue;
+
+    const itemHrid = parts[2]; // e.g., "/items/enchanted_cloak_refined"
+    const enhancementLevel = parseInt(parts[3], 10) || 0;
+
+    if (!itemHrid || !itemHrid.startsWith("/items/")) continue;
+
+    // Convert /item_locations/back -> /equipment_types/back
+    const equipSlot = locationHrid.replace("item_locations", "equipment_types");
+
+    equipment[equipSlot] = { hrid: itemHrid, enhancementLevel };
+  }
+
+  return equipment;
+}
+
+// =============================================================================
+// Consumable Parser
+// =============================================================================
+
+function parseConsumableHrids(
+  itemHrids: string[] | undefined,
+  triggerMap: Record<string, any[]> | undefined
+): (ConsumableDTO | null)[] {
+  if (!Array.isArray(itemHrids)) return [];
+
+  return itemHrids.map((hrid) => {
+    if (!hrid) return null;
+
+    const triggers: TriggerData[] = [];
+    const rawTriggers = triggerMap?.[hrid];
+    if (Array.isArray(rawTriggers)) {
+      for (const t of rawTriggers) {
+        if (t && typeof t === "object") {
+          triggers.push({
+            dependencyHrid: String(t.dependencyHrid ?? ""),
+            conditionHrid: String(t.conditionHrid ?? ""),
+            comparatorHrid: String(t.comparatorHrid ?? ""),
+            value: Number(t.value ?? 0),
+          });
+        }
+      }
+    }
+
+    return { hrid, triggers };
+  });
+}
+
+// =============================================================================
+// Ability Map Parser
+// =============================================================================
+
+/**
+ * Parse loadout abilityMap (slot → abilityHrid) with levels from characterAbilities.
+ */
+function parseAbilityMap(
+  abilityMap: Record<string, string> | undefined,
+  triggerMap: Record<string, any[] | null> | undefined,
+  abilityLevels: Map<string, number>,
+  gameData: GameData
+): { abilities: (AbilityDTO | null)[]; specialAbility: AbilityDTO | null } {
+  const abilities: (AbilityDTO | null)[] = [];
+  let specialAbility: AbilityDTO | null = null;
+
+  if (!abilityMap) return { abilities, specialAbility };
+
+  // Sort by slot number to maintain order
+  const sortedSlots = Object.keys(abilityMap)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  for (const slot of sortedSlots) {
+    const abilityHrid = abilityMap[slot.toString()];
+    if (!abilityHrid) {
+      abilities.push(null);
+      continue;
+    }
+
+    const level = abilityLevels.get(abilityHrid) ?? 1;
+    const triggers = parseTriggerArray(triggerMap?.[abilityHrid]);
+
+    // Check if special ability
+    const isSpecial = gameData.abilityDetailMap[abilityHrid]?.isSpecialAbility;
+    if (isSpecial) {
+      if (!specialAbility) {
+        specialAbility = { hrid: abilityHrid, level, triggers };
+      }
+      continue;
+    }
+
+    abilities.push({ hrid: abilityHrid, level, triggers });
+  }
+
+  return { abilities, specialAbility };
+}
+
+// =============================================================================
+// Shared Helpers
+// =============================================================================
+
+function parseSkills(characterSkills: any[]): Record<string, number> {
+  const skills: Record<string, number> = {
+    staminaLevel: 1,
+    intelligenceLevel: 1,
+    attackLevel: 1,
+    meleeLevel: 1,
+    defenseLevel: 1,
+    rangedLevel: 1,
+    magicLevel: 1,
+  };
+
+  if (!Array.isArray(characterSkills)) return skills;
+
+  for (const skill of characterSkills) {
+    if (!skill?.skillHrid) continue;
+    const levelProp = SKILL_HRID_TO_LEVEL[skill.skillHrid];
+    if (levelProp) {
+      skills[levelProp as string] = Math.max(1, Math.floor(Number(skill.level) || 1));
+    }
+  }
+
+  return skills;
+}
+
+function parseHouseRooms(
+  roomMap: Record<string, any> | undefined
+): HouseRoomLevels {
+  const rooms: HouseRoomLevels = {};
+  if (!roomMap || typeof roomMap !== "object") return rooms;
+
+  for (const [hrid, data] of Object.entries(roomMap)) {
+    if (typeof data === "object" && data !== null) {
+      rooms[hrid] = Math.max(0, Math.floor(Number(data.level) || 0));
+    } else if (typeof data === "number") {
+      rooms[hrid] = Math.max(0, Math.floor(data));
+    }
+  }
+
+  return rooms;
+}
+
+function parseAchievements(rawAchievements: any[]): AchievementMap {
+  const achievements: AchievementMap = {};
+  if (!Array.isArray(rawAchievements)) return achievements;
+
+  for (const ach of rawAchievements) {
+    if (ach?.achievementHrid) {
+      achievements[ach.achievementHrid] = typeof ach.points === "number" ? ach.points : 1;
+    }
+  }
+
+  return achievements;
+}
+
+/**
+ * Build a gear pool from all combat loadouts: slot → unique items.
+ * Deduplicates by hrid:enhancementLevel within each slot.
+ */
+function buildGearPool(
+  combatLoadouts: CombatLoadout[]
+): Map<string, EquipmentDTO[]> {
+  const pool = new Map<string, EquipmentDTO[]>();
+
+  for (const loadout of combatLoadouts) {
+    for (const [slot, item] of Object.entries(loadout.config.equipment)) {
+      if (!item) continue;
+      if (!pool.has(slot)) pool.set(slot, []);
+      const items = pool.get(slot)!;
+      const key = `${item.hrid}:${item.enhancementLevel}`;
+      if (!items.some((i) => `${i.hrid}:${i.enhancementLevel}` === key)) {
+        items.push({ hrid: item.hrid, enhancementLevel: item.enhancementLevel });
+      }
+    }
+  }
+
+  return pool;
+}
+
+/**
+ * Parse labyrinthLoadout* settings from characterSetting.
+ * Keys like "labyrinthLoadoutFrostSniper" map to loadout IDs (numbers).
+ * Converts PascalCase suffix to snake_case monster hrid.
+ * Only includes entries whose loadout ID exists in combatLoadouts.
+ */
+function parseLabyrinthMonsterLoadouts(
+  characterSetting: Record<string, any> | undefined,
+  combatLoadouts: CombatLoadout[]
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!characterSetting || typeof characterSetting !== "object") return result;
+
+  const combatLoadoutIds = new Set(combatLoadouts.map((l) => l.id));
+  const prefix = "labyrinthLoadout";
+
+  for (const [key, value] of Object.entries(characterSetting)) {
+    if (!key.startsWith(prefix) || value == null) continue;
+
+    const suffix = key.slice(prefix.length);
+    // Convert PascalCase to snake_case: "FrostSniper" -> "frost_sniper"
+    const snakeCase = suffix
+      .replace(/([A-Z])/g, "_$1")
+      .toLowerCase()
+      .slice(1); // remove leading underscore
+    const monsterHrid = `/monsters/${snakeCase}`;
+    const loadoutId = String(value);
+
+    // Only include if this loadout is a combat loadout
+    if (combatLoadoutIds.has(loadoutId)) {
+      result[monsterHrid] = loadoutId;
+    }
+  }
+
+  return result;
+}
+
+function parseTriggerArray(raw: any[] | null | undefined): TriggerData[] {
+  if (!Array.isArray(raw)) return [];
+
+  const triggers: TriggerData[] = [];
+  for (const t of raw) {
+    if (t && typeof t === "object") {
+      triggers.push({
+        dependencyHrid: String(t.dependencyHrid ?? ""),
+        conditionHrid: String(t.conditionHrid ?? ""),
+        comparatorHrid: String(t.comparatorHrid ?? ""),
+        value: Number(t.value ?? 0),
+      });
+    }
+  }
+  return triggers;
+}
