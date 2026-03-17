@@ -55,7 +55,7 @@ describe("Labyrinth Simulator", () => {
     const hpRegen = foodBasic.find(
       (b) => b.typeHrid === "/buff_types/hp_regen"
     );
-    expect(hpRegen?.ratioBoost).toBe(0.02);
+    expect(hpRegen?.flatBoost).toBe(0.02);
   });
 
   it("should win a fight at level 1", () => {

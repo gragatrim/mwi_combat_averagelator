@@ -25,6 +25,8 @@ import {
 // Types
 // =============================================================================
 
+export type BestGearMode = "owned" | "best7" | "best10R";
+
 export interface LoadoutChange {
   slotType: "equipment" | "ability" | "specialAbility";
   slotName: string;
@@ -81,9 +83,41 @@ const NON_WEAPON_EQUIPMENT_SLOTS: string[] = [
 
 const ABILITY_SLOT_COUNT = 4;
 
+/** Monsters to skip optimization for in "best10R" mode (baseline only). */
+const BEST10R_SKIP_MONSTERS = new Set([
+  "/monsters/giant_mantis",
+  "/monsters/cyclops",
+  "/monsters/giant_scorpion",
+]);
+
+/** Equipment slots to skip optimization for in "best10R" mode. */
+const BEST10R_SKIP_SLOTS = new Set([
+  "/equipment_types/back",
+  "/equipment_types/feet",
+]);
+
 /** Default ability levels when useBestAbilities is enabled. */
-const BEST_REGULAR_ABILITY_LEVEL = 60;
+const BEST_REGULAR_ABILITY_LEVEL = 70;
 const BEST_SPECIAL_ABILITY_LEVEL = 40;
+
+const MELEE_COMBAT_STYLES = new Set([
+  "/combat_styles/stab",
+  "/combat_styles/slash",
+  "/combat_styles/smash",
+]);
+
+const TANKY_BODY_LEGS_COMBOS = [
+  {
+    bodyHrid: "/items/anchorbound_plate_body_refined",
+    legsHrid: "/items/anchorbound_plate_legs_refined",
+    meleeOnly: false,
+  },
+  {
+    bodyHrid: "/items/maelstrom_plate_body_refined",
+    legsHrid: "/items/maelstrom_plate_legs_refined",
+    meleeOnly: true,
+  },
+];
 
 // =============================================================================
 // Helpers
@@ -194,14 +228,17 @@ function collectWeaponPool(
 
 /**
  * Build a gear pool from ALL equipment in gameData that the player meets
- * level requirements for. Each item uses the better of +7 or the player's
- * highest owned enhancement level for that item.
- * Includes WEAPON_SLOTS and NON_WEAPON_EQUIPMENT_SLOTS.
+ * level requirements for.
+ * - "best7": Each item uses the better of +7 or the player's owned enhancement.
+ *   Skips unowned refined items.
+ * - "best10R": All items at +10, preferring refined versions when available.
+ *   Does NOT skip unowned refined items.
  */
 function buildAllGearPool(
   playerConfig: PlayerConfig,
   gameData: GameData,
-  ownedGearPool: Map<string, EquipmentDTO[]>
+  ownedGearPool: Map<string, EquipmentDTO[]>,
+  mode: BestGearMode = "best7"
 ): Map<string, EquipmentDTO[]> {
   // Build lookup: item hrid → highest owned enhancement level
   const ownedEnhancement = new Map<string, number>();
@@ -210,6 +247,17 @@ function buildAllGearPool(
       const existing = ownedEnhancement.get(item.hrid) ?? 0;
       if (item.enhancementLevel > existing) {
         ownedEnhancement.set(item.hrid, item.enhancementLevel);
+      }
+    }
+  }
+
+  // For "best10R": build a map from base hrid → refined hrid
+  const refinedLookup = new Map<string, string>();
+  if (mode === "best10R") {
+    for (const hrid of Object.keys(gameData.itemDetailMap)) {
+      if (hrid.endsWith("_refined")) {
+        const baseHrid = hrid.slice(0, -"_refined".length);
+        refinedLookup.set(baseHrid, hrid);
       }
     }
   }
@@ -243,14 +291,22 @@ function buildAllGearPool(
     const isRefined = item.hrid.endsWith("_refined");
     const isOwned = ownedEnhancement.has(item.hrid);
 
-    // Skip refined items the player doesn't own — use non-refined version instead
-    if (isRefined && !isOwned) continue;
-
-    const owned = ownedEnhancement.get(item.hrid) ?? 0;
-    const enhancementLevel = isOwned ? Math.max(7, owned) : 7;
-
-    if (!pool.has(slot)) pool.set(slot, []);
-    pool.get(slot)!.push({ hrid: item.hrid, enhancementLevel });
+    if (mode === "best10R") {
+      // Skip base items that have a refined counterpart (we'll add the refined one)
+      if (!isRefined && refinedLookup.has(item.hrid)) continue;
+      // Include ALL refined items (even unowned)
+      const owned = ownedEnhancement.get(item.hrid) ?? 0;
+      const enhancementLevel = Math.max(10, owned);
+      if (!pool.has(slot)) pool.set(slot, []);
+      pool.get(slot)!.push({ hrid: item.hrid, enhancementLevel });
+    } else {
+      // "best7" behavior: skip refined items the player doesn't own
+      if (isRefined && !isOwned) continue;
+      const owned = ownedEnhancement.get(item.hrid) ?? 0;
+      const enhancementLevel = isOwned ? Math.max(7, owned) : 7;
+      if (!pool.has(slot)) pool.set(slot, []);
+      pool.get(slot)!.push({ hrid: item.hrid, enhancementLevel });
+    }
   }
 
   return pool;
@@ -276,6 +332,7 @@ function findLoadoutForWeapon(
   weapon: EquipmentDTO,
   combatLoadouts: CombatLoadout[]
 ): CombatLoadout | null {
+  // Exact match: same hrid and enhancement level
   for (const loadout of combatLoadouts) {
     const eq = loadout.config.equipment;
     for (const slot of WEAPON_SLOTS) {
@@ -289,6 +346,24 @@ function findLoadoutForWeapon(
       }
     }
   }
+
+  // Fuzzy match: strip _refined suffix, ignore enhancement level.
+  // In best10R mode, pool weapons are refined (+10) but loadouts have base versions (+7).
+  const weaponBase = weapon.hrid.endsWith("_refined")
+    ? weapon.hrid.slice(0, -"_refined".length)
+    : weapon.hrid;
+  for (const loadout of combatLoadouts) {
+    const eq = loadout.config.equipment;
+    for (const slot of WEAPON_SLOTS) {
+      const item = eq[slot as EquipmentSlotHrid];
+      if (!item) continue;
+      const itemBase = item.hrid.endsWith("_refined")
+        ? item.hrid.slice(0, -"_refined".length)
+        : item.hrid;
+      if (itemBase === weaponBase) return loadout;
+    }
+  }
+
   return combatLoadouts[0] ?? null;
 }
 
@@ -310,6 +385,39 @@ function setWeaponOnConfig(
     config.equipment["/equipment_types/main_hand"] = weapon;
     config.equipment["/equipment_types/two_hand"] = null;
     // Keep off_hand as-is
+  }
+}
+
+/**
+ * When using best7/best10R mode, initialize non-weapon equipment slots
+ * from the gear pool. For each slot, finds the pool version of the
+ * currently equipped item (preferring refined variant), or keeps the
+ * original if no match exists.
+ */
+function initializeGearFromPool(
+  config: PlayerConfig,
+  gearPool: Map<string, EquipmentDTO[]>,
+  skipSlots?: Set<string>,
+): void {
+  for (const slot of NON_WEAPON_EQUIPMENT_SLOTS) {
+    if (skipSlots?.has(slot)) continue;
+    const currentItem = config.equipment[slot as EquipmentSlotHrid];
+    if (!currentItem?.hrid) continue;
+
+    const poolItems = gearPool.get(slot);
+    if (!poolItems || poolItems.length === 0) continue;
+
+    // Try: 1) refined version of current item, 2) same hrid in pool
+    const refinedHrid = currentItem.hrid.endsWith("_refined")
+      ? currentItem.hrid
+      : currentItem.hrid + "_refined";
+    const match =
+      poolItems.find((p) => p.hrid === refinedHrid) ??
+      poolItems.find((p) => p.hrid === currentItem.hrid);
+
+    if (match) {
+      config.equipment[slot as EquipmentSlotHrid] = { ...match };
+    }
   }
 }
 
@@ -341,7 +449,7 @@ export function optimizeLabyrinthLoadouts(
   gameData: GameData,
   successRate: number,
   onProgress?: (progress: LabyrinthOptProgress) => void,
-  useBestGear: boolean = false,
+  bestGearMode: BestGearMode = "owned",
   useBestAbilities: boolean = false
 ): LabyrinthOptResult {
   const monsters = getLabyrinthMonsters(gameData);
@@ -350,10 +458,9 @@ export function optimizeLabyrinthLoadouts(
   const defaultLoadout =
     combatLoadouts.find((l) => l.id === defaultLoadoutId) ?? combatLoadouts[0];
 
-  // When useBestGear is enabled, build a pool from ALL equippable items,
-  // using the better of +7 or the player's highest owned enhancement
-  const gearPool = useBestGear
-    ? buildAllGearPool(defaultLoadout.config, gameData, charData.gearPool)
+  // When bestGearMode is not "owned", build a pool from ALL equippable items
+  const gearPool = bestGearMode !== "owned"
+    ? buildAllGearPool(defaultLoadout.config, gameData, charData.gearPool, bestGearMode)
     : charData.gearPool;
 
   // Collect weapon pool
@@ -444,6 +551,28 @@ export function optimizeLabyrinthLoadouts(
       detail: "Trying weapons & abilities",
     });
 
+    // In "best10R" mode, skip full optimization for certain monsters
+    if (bestGearMode === "best10R" && BEST10R_SKIP_MONSTERS.has(monsterHrid)) {
+      monsterResults.push({
+        monsterHrid,
+        baselineLevel: baseline.maxLevel,
+        optimizedLevel: baseline.maxLevel,
+        levelDelta: 0,
+        optimizedConfig: baselineConfig,
+        weaponHrid: getEquippedWeaponHrid(baselineConfig),
+        changes: [],
+        killTimeNs: baseline.killTimeNs,
+      });
+      onProgress?.({
+        phase: "optimizing",
+        monsterHrid,
+        monstersCompleted: mi + 1,
+        monstersTotal: monsters.length,
+        simRunsSoFar: simRuns,
+      });
+      continue;
+    }
+
     // Phase 2: Try each weapon candidate
     let bestOverallLevel = baseline.maxLevel;
     let bestOverallKillTime = baseline.killTimeNs;
@@ -461,6 +590,12 @@ export function optimizeLabyrinthLoadouts(
 
       // Apply the weapon
       setWeaponOnConfig(config, weapon, gameData);
+
+      // In best7/best10R mode, upgrade non-weapon slots to pool-quality gear
+      if (bestGearMode !== "owned") {
+        const skipSlots = bestGearMode === "best10R" ? BEST10R_SKIP_SLOTS : undefined;
+        initializeGearFromPool(config, gearPool, skipSlots);
+      }
 
       // Filter compatible abilities for this weapon style
       const compatRegular = regularAbilities.filter((h) =>
@@ -612,7 +747,11 @@ export function optimizeLabyrinthLoadouts(
           )
         : NON_WEAPON_EQUIPMENT_SLOTS;
 
-      for (const slot of gearSlots) {
+      const effectiveGearSlots = bestGearMode === "best10R"
+        ? gearSlots.filter(s => !BEST10R_SKIP_SLOTS.has(s))
+        : gearSlots;
+
+      for (const slot of effectiveGearSlots) {
         const candidates = gearPool.get(slot);
         if (!candidates || candidates.length <= 1) continue;
 
@@ -680,15 +819,48 @@ export function optimizeLabyrinthLoadouts(
 
       // Final re-check with full binary search to get accurate max
       const finalResult = findMax(config, monsterHrid);
+      let bestWeaponLevel = finalResult.maxLevel;
+      let bestWeaponKillTime = finalResult.killTimeNs;
+      let bestWeaponConfig = config;
+
+      // Try tanky body+legs combos (best10R only)
+      if (bestGearMode === "best10R") {
+        const isMelee = MELEE_COMBAT_STYLES.has(weaponStyle ?? "");
+        for (const combo of TANKY_BODY_LEGS_COMBOS) {
+          if (combo.meleeOnly && !isMelee) continue;
+          const bodyItem = gearPool
+            .get("/equipment_types/body")
+            ?.find((p) => p.hrid === combo.bodyHrid);
+          const legsItem = gearPool
+            .get("/equipment_types/legs")
+            ?.find((p) => p.hrid === combo.legsHrid);
+          if (!bodyItem || !legsItem) continue;
+
+          const comboConfig = cloneConfig(config);
+          comboConfig.equipment["/equipment_types/body"] = { ...bodyItem };
+          comboConfig.equipment["/equipment_types/legs"] = { ...legsItem };
+
+          const comboResult = findMax(comboConfig, monsterHrid);
+          if (
+            comboResult.maxLevel > bestWeaponLevel ||
+            (comboResult.maxLevel === bestWeaponLevel &&
+              comboResult.killTimeNs < bestWeaponKillTime)
+          ) {
+            bestWeaponLevel = comboResult.maxLevel;
+            bestWeaponKillTime = comboResult.killTimeNs;
+            bestWeaponConfig = comboConfig;
+          }
+        }
+      }
 
       if (
-        finalResult.maxLevel > bestOverallLevel ||
-        (finalResult.maxLevel === bestOverallLevel &&
-          finalResult.killTimeNs < bestOverallKillTime)
+        bestWeaponLevel > bestOverallLevel ||
+        (bestWeaponLevel === bestOverallLevel &&
+          bestWeaponKillTime < bestOverallKillTime)
       ) {
-        bestOverallLevel = finalResult.maxLevel;
-        bestOverallKillTime = finalResult.killTimeNs;
-        bestOverallConfig = cloneConfig(config);
+        bestOverallLevel = bestWeaponLevel;
+        bestOverallKillTime = bestWeaponKillTime;
+        bestOverallConfig = cloneConfig(bestWeaponConfig);
       }
     }
 

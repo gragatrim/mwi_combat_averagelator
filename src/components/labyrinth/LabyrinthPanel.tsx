@@ -16,6 +16,7 @@ import {
 } from "../../data/fullCharacterData";
 import { hridToName } from "../../utils/formatting";
 import type {
+  BestGearMode,
   LabyrinthOptResult,
   LabyrinthOptProgress,
   MonsterOptResult,
@@ -166,7 +167,7 @@ export default function LabyrinthPanel({
   const [optProgress, setOptProgress] = useState<LabyrinthOptProgress | null>(null);
   const [optResult, setOptResult] = useState<LabyrinthOptResult | null>(null);
   const [optError, setOptError] = useState<string | null>(null);
-  const [useBestGear, setUseBestGear] = useState(false);
+  const [bestGearMode, setBestGearMode] = useState<BestGearMode>("owned");
   const [useBestAbilities, setUseBestAbilities] = useState(false);
   const optWorkerRef = useRef<Worker | null>(null);
 
@@ -295,11 +296,11 @@ export default function LabyrinthPanel({
       wisdomBuffBonus: computeWisdomBuffBonus(xpBonuses),
       gameData,
       successRate,
-      useBestGear,
+      bestGearMode,
       useBestAbilities,
     };
     worker.postMessage(startMsg);
-  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, useBestGear, useBestAbilities]);
+  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities]);
 
   const handleCancelOptimize = useCallback(() => {
     if (optWorkerRef.current) {
@@ -637,22 +638,25 @@ export default function LabyrinthPanel({
                 worker so the UI stays responsive.
               </div>
 
-              {/* Best gear checkbox */}
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={useBestGear}
-                  onChange={(e) => setUseBestGear(e.target.checked)}
+              {/* Best gear mode */}
+              <div>
+                <div className="text-xs text-gray-300 mb-1">Gear pool</div>
+                <select
+                  value={bestGearMode}
+                  onChange={(e) => setBestGearMode(e.target.value as BestGearMode)}
                   disabled={optRunning}
-                  className="mt-0.5 accent-emerald-500"
-                />
-                <div>
-                  <div className="text-xs text-gray-300">Use best possible gear</div>
-                  <div className="text-[10px] text-gray-500">
-                    Non-refined equippable items at +7 (owned refined/higher kept as-is)
-                  </div>
+                  className="w-full bg-gray-900 text-gray-300 text-xs border border-gray-600 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="owned">Owned gear only</option>
+                  <option value="best7">Best gear +7 (non-refined)</option>
+                  <option value="best10R">Best gear +10R (all refined)</option>
+                </select>
+                <div className="text-[10px] text-gray-500 mt-0.5">
+                  {bestGearMode === "owned" && "Uses only gear from your loadouts"}
+                  {bestGearMode === "best7" && "All equippable non-refined items at +7 (owned refined/higher kept)"}
+                  {bestGearMode === "best10R" && "All equippable items at +10, preferring refined versions"}
                 </div>
-              </label>
+              </div>
 
               {/* Best abilities checkbox */}
               <label className="flex items-start gap-2 cursor-pointer">
@@ -666,7 +670,7 @@ export default function LabyrinthPanel({
                 <div>
                   <div className="text-xs text-gray-300">Use best possible abilities</div>
                   <div className="text-[10px] text-gray-500">
-                    Test all abilities at lv60 (specials lv40), or current level if higher
+                    Test all abilities at lv70 (specials lv40), or current level if higher
                   </div>
                 </div>
               </label>
@@ -871,6 +875,11 @@ function MonsterOptCard({
         <span className="text-[11px] font-medium text-gray-200 w-8 text-right shrink-0">
           {mr.optimizedLevel}
         </span>
+        {mr.optimizedLevel > 0 && (
+          <span className="text-[9px] text-gray-600 shrink-0">
+            ({Math.floor(mr.optimizedLevel * 0.98)}&ndash;{Math.ceil(mr.optimizedLevel * 1.05)})
+          </span>
+        )}
 
         <span
           className={`text-[11px] font-medium w-10 text-right shrink-0 ${

@@ -6,6 +6,7 @@
 
 import { optimizeLabyrinthLoadouts } from "./labyrinthOptimizer";
 import type {
+  BestGearMode,
   LabyrinthOptResult,
   LabyrinthOptProgress,
 } from "./labyrinthOptimizer";
@@ -43,7 +44,7 @@ export interface LabOptWorkerStartMessage {
   wisdomBuffBonus: number;
   gameData: GameData;
   successRate: number;
-  useBestGear: boolean;
+  bestGearMode: BestGearMode;
   useBestAbilities: boolean;
 }
 
@@ -110,7 +111,7 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
     wisdomBuffBonus,
     gameData,
     successRate,
-    useBestGear,
+    bestGearMode,
     useBestAbilities,
   } = event.data;
 
@@ -134,7 +135,7 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
           progress,
         } satisfies LabOptWorkerProgressMessage);
       },
-      useBestGear,
+      bestGearMode,
       useBestAbilities
     );
 

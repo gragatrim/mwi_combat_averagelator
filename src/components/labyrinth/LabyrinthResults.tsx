@@ -3,6 +3,7 @@
 // =============================================================================
 
 import type { LabyrinthResult } from "../../features/labyrinthSimulator";
+import { computeAdjustedLevel, DEFAULT_LEVEL_CV } from "../../features/labyrinthSimulator";
 import { hridToName, formatDuration, nsToSeconds } from "../../utils/formatting";
 
 interface LabyrinthResultsProps {
@@ -59,9 +60,24 @@ export default function LabyrinthResults({
                 >
                   {r.maxLevel}
                 </span>
-                {r.rawMaxLevel > r.maxLevel && (
-                  <span className="text-gray-500 text-xs ml-1">({r.rawMaxLevel})</span>
-                )}
+                {r.maxLevel > 0 && (() => {
+                  const effectiveCv = DEFAULT_LEVEL_CV + (r.ccBonusCv ?? 0);
+                  const lo = computeAdjustedLevel(r.rawMaxLevel, 0.9, effectiveCv);
+                  const hi = computeAdjustedLevel(r.rawMaxLevel, 0.1, effectiveCv);
+                  const hasCc = (r.ccBonusCv ?? 0) > 0.01;
+                  return (
+                    <span
+                      className={`text-xs ml-1 ${hasCc ? "text-amber-400" : "text-gray-500"}`}
+                      title={
+                        hasCc
+                          ? "This monster has CC abilities (blind/stun/silence) that increase fight variance. Actual results may differ more from the predicted level."
+                          : `~90% clear at ${lo}, ~10% clear at ${hi}`
+                      }
+                    >
+                      ({lo}&ndash;{hi}){hasCc && " ⚡"}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="px-4 py-2 text-xs text-right text-gray-400">
                 {r.killTimeNs > 0

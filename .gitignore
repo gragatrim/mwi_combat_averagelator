@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Local test data (character exports, screenshots, game data)
+live_data/
+
+#Claude
+CLAUDE.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

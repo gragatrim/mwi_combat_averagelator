@@ -28,6 +28,7 @@ export interface LabyrinthResult {
   rawMaxLevel: number;
   killTimeNs: number;
   estimatedClearRate: number;
+  ccBonusCv: number;
 }
 
 export interface LabyrinthProgress {
@@ -47,7 +48,7 @@ export interface LabyrinthFightResult {
 const ONE_SECOND = 1e9;
 const LABYRINTH_TIME_LIMIT_NS = 120 * ONE_SECOND; // 2 minutes
 const DEFAULT_CV = 0.10; // coefficient of variation for kill time distribution
-const DEFAULT_LEVEL_CV = 0.05; // coefficient of variation for level-based variance (~5% deterministic bias)
+export const DEFAULT_LEVEL_CV = 0.05; // coefficient of variation for level-based variance (~5% deterministic bias)
 
 // =============================================================================
 // Normal Distribution Utilities
@@ -253,16 +254,16 @@ const CRATE_BUFFS: Record<string, Record<string, BuffData[]>> = {
   },
   food: {
     basic: [
-      makeCrateBuff("hp_regen", "/buff_types/hp_regen", 0, 0.02),
-      makeCrateBuff("mp_regen", "/buff_types/mp_regen", 0, 0.02),
+      makeCrateBuff("hp_regen", "/buff_types/hp_regen", 0.02, 0),
+      makeCrateBuff("mp_regen", "/buff_types/mp_regen", 0.02, 0),
     ],
     advanced: [
-      makeCrateBuff("hp_regen", "/buff_types/hp_regen", 0, 0.04),
-      makeCrateBuff("mp_regen", "/buff_types/mp_regen", 0, 0.04),
+      makeCrateBuff("hp_regen", "/buff_types/hp_regen", 0.04, 0),
+      makeCrateBuff("mp_regen", "/buff_types/mp_regen", 0.04, 0),
     ],
     expert: [
-      makeCrateBuff("hp_regen", "/buff_types/hp_regen", 0, 0.06),
-      makeCrateBuff("mp_regen", "/buff_types/mp_regen", 0, 0.06),
+      makeCrateBuff("hp_regen", "/buff_types/hp_regen", 0.06, 0),
+      makeCrateBuff("mp_regen", "/buff_types/mp_regen", 0.06, 0),
     ],
   },
 };
@@ -453,6 +454,66 @@ export function findMaxLabyrinthLevel(
 }
 
 // =============================================================================
+// CC Variance Estimation
+// =============================================================================
+
+// Weights reflecting relative DPS impact of each CC type
+const CC_WEIGHTS: Record<string, number> = {
+  blind: 0.15,  // high: binary miss-or-not per cast
+  stun: 0.10,   // medium: complete action lockout
+  silence: 0.08, // medium: delays abilities only
+};
+
+/**
+ * Estimate additional coefficient of variation from a monster's CC abilities.
+ * Looks at blind/stun/silence on each ability and computes a variance proxy
+ * based on: chance * (duration / cooldown) * CC_WEIGHT.
+ * Returns a bonus CV to add to DEFAULT_LEVEL_CV (capped at 0.10).
+ */
+export function estimateMonsterCcCv(
+  monsterHrid: string,
+  gameData: GameData
+): number {
+  const monster = gameData.combatMonsterDetailMap[monsterHrid];
+  if (!monster?.abilities?.length) return 0;
+
+  let totalCcCv = 0;
+
+  for (const abilityRef of monster.abilities) {
+    const abilityData = gameData.abilityDetailMap[abilityRef.abilityHrid];
+    if (!abilityData?.abilityEffects?.length) continue;
+
+    const cooldownSec = Math.max(abilityData.cooldownDuration / 1e9, 10);
+
+    for (const effect of abilityData.abilityEffects) {
+      if (effect.blindChance > 0) {
+        totalCcCv +=
+          effect.blindChance *
+          (effect.blindDuration / 1e9) /
+          cooldownSec *
+          CC_WEIGHTS.blind;
+      }
+      if (effect.stunChance > 0) {
+        totalCcCv +=
+          effect.stunChance *
+          (effect.stunDuration / 1e9) /
+          cooldownSec *
+          CC_WEIGHTS.stun;
+      }
+      if (effect.silenceChance > 0) {
+        totalCcCv +=
+          effect.silenceChance *
+          (effect.silenceDuration / 1e9) /
+          cooldownSec *
+          CC_WEIGHTS.silence;
+      }
+    }
+  }
+
+  return Math.min(totalCcCv, 0.10);
+}
+
+// =============================================================================
 // Run All Monsters
 // =============================================================================
 
@@ -499,6 +560,8 @@ export function findAllLabyrinthLevels(
       successRate
     );
 
+    const ccBonusCv = estimateMonsterCcCv(monsterHrid, gameData);
+
     results.push({
       monsterHrid,
       maxLevel: result.maxLevel,
@@ -507,6 +570,7 @@ export function findAllLabyrinthLevels(
       estimatedClearRate: result.maxLevel > 0
         ? computeLevelBasedClearRate(result.maxLevel, result.rawMaxLevel)
         : 0,
+      ccBonusCv,
     });
   }
 
