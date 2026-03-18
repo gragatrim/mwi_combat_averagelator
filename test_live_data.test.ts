@@ -47,11 +47,11 @@ const playerConfigs: PlayerConfig[] = playerFiles.map((name) => {
 
 // Expected XP values from screenshots
 const expected: Record<string, { total: number; skills: Record<string, number> }> = {
-  gragatrim: { total: 814500, skills: { magic: 814500 } },
-  Lisie:     { total: 844900, skills: { magic: 844900 } },
-  qu:        { total: 767000, skills: { ranged: 767000 } },
-  Skumbus:   { total: 738500, skills: { attack: 533700, magic: 204800 } },
-  Sollin:    { total: 808200, skills: { magic: 808200 } },
+  gragatrim: { total: 833500, skills: { magic: 833500 } },
+  Lisie:     { total: 879100, skills: { magic: 879100 } },
+  qu:        { total: 783100, skills: { ranged: 783100 } },
+  Skumbus:   { total: 772400, skills: { magic: 772400 } },
+  Sollin:    { total: 825400, skills: { magic: 825400 } },
 };
 
 describe("Live data validation", () => {
