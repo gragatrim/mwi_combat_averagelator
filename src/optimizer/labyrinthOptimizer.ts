@@ -514,17 +514,17 @@ export function optimizeLabyrinthLoadouts(
 
   const monsterResults: MonsterOptResult[] = [];
 
+  // --- Pre-pass: compute all baselines first ---
+  // We need all baselines upfront so we can determine which floor is the
+  // player's current ceiling and skip monsters that already reach it.
+  const baselines: { monsterHrid: string; config: PlayerConfig; maxLevel: number; killTimeNs: number }[] = [];
   for (let mi = 0; mi < monsters.length; mi++) {
     const monsterHrid = monsters[mi];
-
-    // Determine baseline config for this monster
     const overrideId = monsterOverrides[monsterHrid];
     const baselineLoadout = overrideId
       ? combatLoadouts.find((l) => l.id === overrideId) ?? defaultLoadout
       : defaultLoadout;
-    const baselineConfig = baselineLoadout.config;
 
-    // Phase 1: Baseline
     onProgress?.({
       phase: "baseline",
       monsterHrid,
@@ -534,7 +534,23 @@ export function optimizeLabyrinthLoadouts(
       detail: "Finding baseline level",
     });
 
-    const baseline = findMax(baselineConfig, monsterHrid);
+    const result = findMax(baselineLoadout.config, monsterHrid);
+    baselines.push({ monsterHrid, config: baselineLoadout.config, maxLevel: result.maxLevel, killTimeNs: result.killTimeNs });
+  }
+
+  // Find the highest floor any monster can reach with current gear.
+  // A monster "reaches" a floor if its maxLevel >= that floor's minLevel.
+  // Monsters that can already reach this floor don't need optimization —
+  // only the ones that can't reach it are bottlenecks worth optimizing.
+  const bestBaselineLevel = Math.max(...baselines.map(b => b.maxLevel));
+  let bestFloorMin = 0;
+  for (const [, fmin] of FLOORS) {
+    if (bestBaselineLevel >= fmin) bestFloorMin = fmin;
+  }
+
+  for (let mi = 0; mi < monsters.length; mi++) {
+    const { monsterHrid, config: baselineConfig, maxLevel: baselineMaxLevel, killTimeNs: baselineKillTime } = baselines[mi];
+    const baseline = { maxLevel: baselineMaxLevel, killTimeNs: baselineKillTime };
 
     onProgress?.({
       phase: "optimizing",
@@ -545,9 +561,9 @@ export function optimizeLabyrinthLoadouts(
       detail: "Trying weapons & abilities",
     });
 
-    // In "best10R" mode, skip full optimization if already maxed at highest floor level
-    const maxFloorLevel = FLOORS[FLOORS.length - 1][2];
-    if (bestGearMode === "best10R" && baseline.maxLevel >= maxFloorLevel) {
+    // In "best10R" mode, skip optimization for monsters that can already
+    // reach the highest floor any monster reaches — they're not the bottleneck.
+    if (bestGearMode === "best10R" && baseline.maxLevel >= bestFloorMin) {
       monsterResults.push({
         monsterHrid,
         baselineLevel: baseline.maxLevel,
