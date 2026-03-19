@@ -75,6 +75,53 @@ const SKILL_HRID_TO_LEVEL: Record<string, keyof PlayerConfig> = {
  * Parse full character data JSON into structured combat loadouts.
  * Returns all combat loadouts, each as a complete PlayerConfig.
  */
+/**
+ * Build max enhancement level lookup from all owned items.
+ * Scans both characterItems (inventory) and items equipped in combat loadouts,
+ * since equipped items might not always be present in characterItems.
+ */
+function buildMaxEnhancementMap(data: Record<string, unknown>): Map<string, number> {
+  const maxEnhByItem = new Map<string, number>();
+
+  // Source 1: All items from characterItems (inventory, bank, etc.)
+  const characterItems = data.characterItems;
+  if (Array.isArray(characterItems)) {
+    for (const item of characterItems as Record<string, unknown>[]) {
+      const itemHrid = item?.itemHrid as string | undefined;
+      const enhancementLevel = (item?.enhancementLevel as number) ?? 0;
+      if (itemHrid) {
+        const current = maxEnhByItem.get(itemHrid) ?? 0;
+        if (enhancementLevel > current) {
+          maxEnhByItem.set(itemHrid, enhancementLevel);
+        }
+      }
+    }
+  }
+
+  // Source 2: Items equipped in combat loadouts (may not be in characterItems)
+  const loadoutMap = data.characterLoadoutMap as Record<string, any>;
+  if (loadoutMap) {
+    for (const loadout of Object.values(loadoutMap)) {
+      if (loadout?.actionTypeHrid !== "/action_types/combat") continue;
+      const wearableMap = loadout.wearableMap as Record<string, any>;
+      if (wearableMap) {
+        for (const item of Object.values(wearableMap) as Record<string, any>[]) {
+          const itemHrid = item?.itemHrid as string | undefined;
+          const enhancementLevel = (item?.enhancementLevel as number) ?? 0;
+          if (itemHrid) {
+            const current = maxEnhByItem.get(itemHrid) ?? 0;
+            if (enhancementLevel > current) {
+              maxEnhByItem.set(itemHrid, enhancementLevel);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return maxEnhByItem;
+}
+
 export function parseFullCharacterData(
   jsonString: string,
   gameData: GameData
@@ -118,6 +165,13 @@ export function parseFullCharacterData(
     }
   }
 
+  // --- Build max enhancement level lookup from all owned items ---
+  // When useExactEnhancement is false (the default), the game uses the highest
+  // enhanced version of each item the player owns, not the level stored in the loadout.
+  // This scans both characterItems (inventory/bank) and items equipped in loadouts,
+  // since equipped items might not always be in characterItems (as noted in buildGearPool).
+  const maxEnhByItem = buildMaxEnhancementMap(data);
+
   // --- Parse combat loadouts ---
   const combatLoadouts: CombatLoadout[] = [];
   const loadoutMap = data.characterLoadoutMap as Record<string, any>;
@@ -134,6 +188,21 @@ export function parseFullCharacterData(
       abilityLevels,
       gameData
     );
+
+    // When useExactEnhancement is false (default), upgrade each equipped item
+    // to the highest enhancement level the player owns for that item hrid.
+    if (!loadout.useExactEnhancement) {
+      for (const [slot, item] of Object.entries(config.equipment)) {
+        if (!item?.hrid) continue;
+        const maxEnh = maxEnhByItem.get(item.hrid);
+        if (maxEnh != null && maxEnh > item.enhancementLevel) {
+          config.equipment[slot as EquipmentSlotHrid] = {
+            hrid: item.hrid,
+            enhancementLevel: maxEnh,
+          };
+        }
+      }
+    }
 
     combatLoadouts.push({
       id,
