@@ -70,6 +70,8 @@ const FOOD_OPTIONS: { value: CrateTier; label: string; desc: string }[] = [
 ];
 
 const CLEAR_RATE_OPTIONS: { value: number; label: string; desc: string }[] = [
+  { value: 0.1, label: "10%", desc: "~7% higher" },
+  { value: 0.33, label: "33%", desc: "~2% higher" },
   { value: 0.5, label: "50%", desc: "no reduction" },
   { value: 0.75, label: "75%", desc: "~3% lower" },
   { value: 0.9, label: "90%", desc: "~6% lower" },
