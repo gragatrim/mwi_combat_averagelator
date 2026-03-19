@@ -99,9 +99,9 @@ export function generateAnalysis(
   const shroudCount = resources.shroud;
   const mf = results.maxFloorNoShrouds;
   let targetFloor: number;
-  if (shroudCount >= 8) targetFloor = Math.min(13, mf + 3);
-  else if (shroudCount >= 5) targetFloor = Math.min(13, mf + 2);
-  else targetFloor = Math.min(13, mf + 1);
+  if (shroudCount >= 8) targetFloor = mf + 3;
+  else if (shroudCount >= 5) targetFloor = mf + 2;
+  else targetFloor = mf + 1;
 
   const bottleneck = computeBottleneck(
     results.skillData, results.combatData, results.floorResults, targetFloor

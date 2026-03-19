@@ -20,6 +20,7 @@ import {
   findMaxLabyrinthLevel,
   getLabyrinthMonsters,
 } from "../features/labyrinthSimulator";
+import { FLOORS } from "../features/labyrinthAnalyzer/constants";
 
 // =============================================================================
 // Types
@@ -82,13 +83,6 @@ const NON_WEAPON_EQUIPMENT_SLOTS: string[] = [
 ];
 
 const ABILITY_SLOT_COUNT = 4;
-
-/** Monsters to skip optimization for in "best10R" mode (baseline only). */
-const BEST10R_SKIP_MONSTERS = new Set([
-  "/monsters/giant_mantis",
-  "/monsters/cyclops",
-  "/monsters/giant_scorpion",
-]);
 
 /** Equipment slots to skip optimization for in "best10R" mode. */
 const BEST10R_SKIP_SLOTS = new Set([
@@ -551,8 +545,9 @@ export function optimizeLabyrinthLoadouts(
       detail: "Trying weapons & abilities",
     });
 
-    // In "best10R" mode, skip full optimization for certain monsters
-    if (bestGearMode === "best10R" && BEST10R_SKIP_MONSTERS.has(monsterHrid)) {
+    // In "best10R" mode, skip full optimization if already maxed at highest floor level
+    const maxFloorLevel = FLOORS[FLOORS.length - 1][2];
+    if (bestGearMode === "best10R" && baseline.maxLevel >= maxFloorLevel) {
       monsterResults.push({
         monsterHrid,
         baselineLevel: baseline.maxLevel,

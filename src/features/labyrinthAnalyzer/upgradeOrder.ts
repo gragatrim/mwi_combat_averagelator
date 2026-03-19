@@ -22,9 +22,9 @@ function computeResourceCounts(levels: UpgradeLevels): Record<string, number> {
 
 function computeTargetFloor(maxFloorNoShrouds: number, shroudCount: number): number {
   const base = maxFloorNoShrouds;
-  if (shroudCount >= 8) return Math.min(13, base + 3);
-  if (shroudCount >= 5) return Math.min(13, base + 2);
-  return Math.min(13, base + 1);
+  if (shroudCount >= 8) return base + 3;
+  if (shroudCount >= 5) return base + 2;
+  return base + 1;
 }
 
 function computeBoxesPerRun(
