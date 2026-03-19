@@ -121,6 +121,19 @@ function cloneConfig(config: PlayerConfig): PlayerConfig {
   return JSON.parse(JSON.stringify(config));
 }
 
+/** Generate all permutations of an array. For n=4 this produces 24 results. */
+function permutations<T>(arr: T[]): T[][] {
+  if (arr.length <= 1) return [arr];
+  const result: T[][] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+    for (const perm of permutations(rest)) {
+      result.push([arr[i], ...perm]);
+    }
+  }
+  return result;
+}
+
 /** Get the combat style hrid for a weapon from game data. */
 function getWeaponCombatStyle(
   weaponHrid: string,
@@ -732,6 +745,66 @@ export function optimizeLabyrinthLoadouts(
         if (bestLevel > currentLevel) {
           currentLevel = bestLevel;
           currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
+        }
+      }
+
+
+
+      // --- Test ability permutations ---
+      // The greedy pass above found the best SET of abilities, but order matters:
+      // the engine casts only the first ability that triggers each tick. Testing
+      // all permutations (max 4! = 24) finds the optimal casting priority order.
+      {
+        const chosenAbilities = config.abilities
+          .filter((a): a is AbilityDTO => a != null && !!a.hrid);
+
+        if (chosenAbilities.length >= 2) {
+          const perms = permutations(chosenAbilities);
+          let bestPermLevel = currentLevel;
+          let bestPermKillTime = currentResult.killTimeNs;
+          let bestPermOrder = chosenAbilities;
+
+          for (const perm of perms) {
+            // Fill ability slots with this permutation
+            for (let s = 0; s < ABILITY_SLOT_COUNT; s++) {
+              config.abilities[s] = perm[s] ?? null;
+            }
+
+            const test = simFight(config, monsterHrid, bestPermLevel);
+            if (!test.success) continue;
+
+            // Probe upward
+            let probeLevel = bestPermLevel;
+            let probeKillTime = test.killTimeNs;
+            for (let delta = 1; delta <= 10; delta++) {
+              const next = simFight(config, monsterHrid, bestPermLevel + delta);
+              if (next.success) {
+                probeLevel = bestPermLevel + delta;
+                probeKillTime = next.killTimeNs;
+              } else {
+                break;
+              }
+            }
+
+            if (
+              probeLevel > bestPermLevel ||
+              (probeLevel === bestPermLevel && probeKillTime < bestPermKillTime)
+            ) {
+              bestPermLevel = probeLevel;
+              bestPermKillTime = probeKillTime;
+              bestPermOrder = [...perm];
+            }
+          }
+
+          // Apply the best permutation
+          for (let s = 0; s < ABILITY_SLOT_COUNT; s++) {
+            config.abilities[s] = bestPermOrder[s] ?? null;
+          }
+          if (bestPermLevel > currentLevel ||
+              (bestPermLevel === currentLevel && bestPermKillTime < currentResult.killTimeNs)) {
+            currentLevel = bestPermLevel;
+            currentResult = { maxLevel: bestPermLevel, killTimeNs: bestPermKillTime };
+          }
         }
       }
 
