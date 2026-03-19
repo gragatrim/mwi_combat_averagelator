@@ -140,15 +140,33 @@ function getItemSlotType(
   return gameData.itemDetailMap[itemHrid]?.equipmentDetail?.type ?? null;
 }
 
+/** Get the damage type for a weapon (e.g. "/damage_types/fire"). */
+function getWeaponDamageType(
+  weaponHrid: string,
+  gameData: GameData
+): string | null {
+  return gameData.itemDetailMap[weaponHrid]?.equipmentDetail?.combatStats?.damageType ?? null;
+}
+
+/** Map from amplify buff types to the damage types they boost. */
+const AMPLIFY_BUFF_TO_DAMAGE_TYPE: Record<string, string> = {
+  "/buff_types/physical_amplify": "/damage_types/physical",
+  "/buff_types/water_amplify": "/damage_types/water",
+  "/buff_types/nature_amplify": "/damage_types/nature",
+  "/buff_types/fire_amplify": "/damage_types/fire",
+};
+
 /**
- * Check if an ability is compatible with a weapon's combat style.
+ * Check if an ability is compatible with a weapon's combat style and damage type.
  * An ability is compatible if:
- * - It has no damage effects with a specific combatStyleHrid (style-agnostic: heals, buffs)
- * - OR any of its damage effects match the weapon's combat style
+ * - It's a damage ability whose combatStyleHrid matches the weapon, OR
+ * - It's a buff ability with amplify buffs matching the weapon's damage type, OR
+ * - It's a buff ability with no amplify buffs (heal, revive, etc. — truly style-agnostic)
  */
 function isAbilityCompatible(
   abilityHrid: string,
   weaponCombatStyle: string | null,
+  weaponDamageType: string | null,
   gameData: GameData
 ): boolean {
   const ability = gameData.abilityDetailMap[abilityHrid];
@@ -158,16 +176,35 @@ function isAbilityCompatible(
     (e: AbilityEffectData) => e.effectType === "/ability_effect_types/damage"
   );
 
-  // No damage effects = style-agnostic (heal, buff, revive)
-  if (damageEffects.length === 0) return true;
+  // Has damage effects — check combat style match
+  if (damageEffects.length > 0) {
+    if (!weaponCombatStyle) return false;
+    return damageEffects.some(
+      (e: AbilityEffectData) =>
+        !e.combatStyleHrid || e.combatStyleHrid === weaponCombatStyle
+    );
+  }
 
-  // If no weapon style, only style-agnostic abilities work
-  if (!weaponCombatStyle) return false;
+  // No damage effects — check if it has amplify buffs
+  // Collect all amplify buff type hrids from the ability's effects
+  const amplifyBuffTypes: string[] = [];
+  for (const effect of ability.abilityEffects) {
+    if (effect.effectType !== "/ability_effect_types/buff") continue;
+    if (!effect.buffs) continue;
+    for (const buff of effect.buffs) {
+      if (buff.typeHrid && buff.typeHrid in AMPLIFY_BUFF_TO_DAMAGE_TYPE) {
+        amplifyBuffTypes.push(buff.typeHrid);
+      }
+    }
+  }
 
-  // Check if any damage effect matches the weapon style
-  return damageEffects.some(
-    (e: AbilityEffectData) =>
-      !e.combatStyleHrid || e.combatStyleHrid === weaponCombatStyle
+  // No amplify buffs = truly style-agnostic (heal, revive, etc.)
+  if (amplifyBuffTypes.length === 0) return true;
+
+  // Has amplify buffs — only compatible if at least one matches the weapon's damage type
+  if (!weaponDamageType) return false;
+  return amplifyBuffTypes.some(
+    (buffType) => AMPLIFY_BUFF_TO_DAMAGE_TYPE[buffType] === weaponDamageType
   );
 }
 
@@ -608,12 +645,13 @@ export function optimizeLabyrinthLoadouts(
         initializeGearFromPool(config, gearPool, skipSlots);
       }
 
-      // Filter compatible abilities for this weapon style
+      // Filter compatible abilities for this weapon style and damage type
+      const weaponDamageType = getWeaponDamageType(weapon.hrid, gameData);
       const compatRegular = regularAbilities.filter((h) =>
-        isAbilityCompatible(h, weaponStyle, gameData)
+        isAbilityCompatible(h, weaponStyle, weaponDamageType, gameData)
       );
       const compatSpecial = specialAbilities.filter((h) =>
-        isAbilityCompatible(h, weaponStyle, gameData)
+        isAbilityCompatible(h, weaponStyle, weaponDamageType, gameData)
       );
 
       // Find initial level with this weapon + existing abilities
