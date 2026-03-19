@@ -52,6 +52,7 @@ function App() {
   const [mode, setMode] = useState<AppMode>("combat");
   const [labLoadoutNameMap, setLabLoadoutNameMap] = useState<Record<string, string>>({});
   const [labDefaultLoadoutName, setLabDefaultLoadoutName] = useState("Default");
+  const [labRawCharData, setLabRawCharData] = useState<Record<string, unknown> | null>(null);
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
   const [selectedZone, setSelectedZone] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState(0);
@@ -324,6 +325,7 @@ function App() {
                   isRunning={labRunning}
                   progress={labProgress}
                   xpBonuses={xpBonuses}
+                  onRawCharData={setLabRawCharData}
                 />
 
                 <BonusSettings
@@ -489,6 +491,9 @@ function App() {
                     results={labResults}
                     loadoutNameMap={labLoadoutNameMap}
                     defaultLoadoutName={labDefaultLoadoutName}
+                    rawCharData={labRawCharData}
+                    gameData={gameData}
+                    withSeals={xpBonuses.playerBonuses[0]?.seals?.wisdom ?? false}
                   />
                 )}
 

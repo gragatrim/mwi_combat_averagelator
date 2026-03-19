@@ -47,6 +47,8 @@ interface LabyrinthPanelProps {
   isRunning: boolean;
   progress?: LabyrinthProgress | null;
   xpBonuses: XpBonusSettings;
+  /** Callback to expose raw character JSON data for floor analysis */
+  onRawCharData?: (rawData: Record<string, unknown> | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,7 @@ export default function LabyrinthPanel({
   isRunning,
   progress,
   xpBonuses,
+  onRawCharData,
 }: LabyrinthPanelProps) {
   // --- Character data state ---
   const [jsonText, setJsonText] = useState("");
@@ -192,6 +195,12 @@ export default function LabyrinthPanel({
     try {
       const parsed = parseFullCharacterData(jsonText, gameData);
       setCharData(parsed);
+
+      // Also expose raw JSON for floor analysis
+      try {
+        const rawJson = JSON.parse(jsonText);
+        onRawCharData?.(rawJson);
+      } catch { /* ignore parse error for raw data */ }
 
       if (parsed.combatLoadouts.length > 0) {
         setDefaultLoadoutId(parsed.combatLoadouts[0].id);
