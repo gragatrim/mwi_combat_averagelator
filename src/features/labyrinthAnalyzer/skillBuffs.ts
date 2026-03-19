@@ -286,6 +286,11 @@ export function getLabyrinthUpgradeLevels(charData: RawCharData): {
   };
 }
 
+/** Get the player's highest achieved labyrinth floor from characterInfo */
+export function getHighestAchievedFloor(charData: RawCharData): number {
+  return charData.characterInfo?.labyrinthHighestFloor ?? 0;
+}
+
 // --- Helpers ---
 
 function pascalToSnake(s: string): string {

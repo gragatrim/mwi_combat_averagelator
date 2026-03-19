@@ -19,6 +19,7 @@ import {
   getDataTimestamp,
   parseLabyrinthSkip,
   getLabyrinthUpgradeLevels,
+  getHighestAchievedFloor,
 } from "./skillBuffs";
 import { computeAllSkillThresholds } from "./thresholds";
 import { analyze, computeBottleneck, computeSkipRecommendations } from "./floorAnalysis";
@@ -95,13 +96,19 @@ export function generateAnalysis(
     resources[utype] = LAB_UPGRADE_BASES[utype] + (upgradeLevels[utype as keyof typeof upgradeLevels] as number ?? 0) * LAB_UPGRADE_PER_LEVEL[utype];
   }
 
-  // Compute target floor
+  // Compute target floor: use the higher of the calculated estimate and the
+  // player's actual highest achieved floor (from characterInfo.labyrinthHighestFloor).
+  // This way the analyzer reflects reality if the player has already proven
+  // they can reach a higher floor than the formula predicts.
   const shroudCount = resources.shroud;
   const mf = results.maxFloorNoShrouds;
-  let targetFloor: number;
-  if (shroudCount >= 8) targetFloor = mf + 3;
-  else if (shroudCount >= 5) targetFloor = mf + 2;
-  else targetFloor = mf + 1;
+  let calculatedTarget: number;
+  if (shroudCount >= 8) calculatedTarget = mf + 3;
+  else if (shroudCount >= 5) calculatedTarget = mf + 2;
+  else calculatedTarget = mf + 1;
+
+  const achievedFloor = getHighestAchievedFloor(rawCharData);
+  const targetFloor = Math.max(calculatedTarget, achievedFloor);
 
   const bottleneck = computeBottleneck(
     results.skillData, results.combatData, results.floorResults, targetFloor
