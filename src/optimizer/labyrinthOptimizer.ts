@@ -968,16 +968,16 @@ function computeChanges(
     ...Object.keys(optimized.equipment),
   ]);
   for (const slot of allSlots) {
-    const oldItem =
-      baseline.equipment[slot as EquipmentSlotHrid]?.hrid ?? null;
-    const newItem =
-      optimized.equipment[slot as EquipmentSlotHrid]?.hrid ?? null;
-    if (oldItem !== newItem) {
+    const oldEquip = baseline.equipment[slot as EquipmentSlotHrid];
+    const newEquip = optimized.equipment[slot as EquipmentSlotHrid];
+    const oldKey = oldEquip ? `${oldEquip.hrid}::${oldEquip.enhancementLevel}` : null;
+    const newKey = newEquip ? `${newEquip.hrid}::${newEquip.enhancementLevel}` : null;
+    if (oldKey !== newKey) {
       changes.push({
         slotType: "equipment",
         slotName: slot,
-        originalHrid: oldItem,
-        optimizedHrid: newItem,
+        originalHrid: oldEquip?.hrid ?? null,
+        optimizedHrid: newEquip?.hrid ?? null,
       });
     }
   }

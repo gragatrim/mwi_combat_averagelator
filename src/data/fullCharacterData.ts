@@ -156,8 +156,8 @@ export function parseFullCharacterData(
     combatLoadouts
   );
 
-  // --- Build gear pool across all combat loadouts ---
-  const gearPool = buildGearPool(combatLoadouts);
+  // --- Build gear pool from all owned equipment (inventory + loadouts) ---
+  const gearPool = buildGearPool(data, combatLoadouts, gameData);
 
   return { hrid, combatLoadouts, labyrinthCrates, labyrinthMonsterLoadouts, abilityLevels, gearPool };
 }
@@ -392,21 +392,55 @@ function parseAchievements(rawAchievements: any[]): AchievementMap {
  * Build a gear pool from all combat loadouts: slot → unique items.
  * Deduplicates by hrid:enhancementLevel within each slot.
  */
+/**
+ * Build gear pool from ALL owned equipment: inventory items + equipped loadout items.
+ * For each item hrid, only the highest enhancement level is kept (it's always best).
+ * Items are grouped by their equipment slot type from game data.
+ */
 function buildGearPool(
-  combatLoadouts: CombatLoadout[]
+  rawData: Record<string, unknown>,
+  combatLoadouts: CombatLoadout[],
+  gameData: GameData
 ): Map<string, EquipmentDTO[]> {
-  const pool = new Map<string, EquipmentDTO[]>();
+  // Track best enhancement level per (slot, hrid) pair
+  const bestBySlotHrid = new Map<string, { slot: string; hrid: string; enhancementLevel: number }>();
 
+  const addItem = (slot: string, hrid: string, enhancementLevel: number) => {
+    const key = `${slot}::${hrid}`;
+    const existing = bestBySlotHrid.get(key);
+    if (!existing || enhancementLevel > existing.enhancementLevel) {
+      bestBySlotHrid.set(key, { slot, hrid, enhancementLevel });
+    }
+  };
+
+  // Source 1: All items from characterItems (inventory + bank + everywhere)
+  const characterItems = rawData.characterItems;
+  if (Array.isArray(characterItems)) {
+    for (const item of characterItems) {
+      const hrid = item?.itemHrid as string | undefined;
+      if (!hrid) continue;
+      const itemDetail = gameData.itemDetailMap[hrid];
+      if (!itemDetail?.equipmentDetail) continue;
+      const slot = itemDetail.equipmentDetail.type;
+      if (!slot) continue;
+      const enhLevel = (item.enhancementLevel as number) ?? 0;
+      addItem(slot, hrid, enhLevel);
+    }
+  }
+
+  // Source 2: Items equipped in combat loadouts (may not be in characterItems)
   for (const loadout of combatLoadouts) {
     for (const [slot, item] of Object.entries(loadout.config.equipment)) {
-      if (!item) continue;
-      if (!pool.has(slot)) pool.set(slot, []);
-      const items = pool.get(slot)!;
-      const key = `${item.hrid}:${item.enhancementLevel}`;
-      if (!items.some((i) => `${i.hrid}:${i.enhancementLevel}` === key)) {
-        items.push({ hrid: item.hrid, enhancementLevel: item.enhancementLevel });
-      }
+      if (!item?.hrid) continue;
+      addItem(slot, item.hrid, item.enhancementLevel);
     }
+  }
+
+  // Group by slot
+  const pool = new Map<string, EquipmentDTO[]>();
+  for (const { slot, hrid, enhancementLevel } of bestBySlotHrid.values()) {
+    if (!pool.has(slot)) pool.set(slot, []);
+    pool.get(slot)!.push({ hrid, enhancementLevel });
   }
 
   return pool;
