@@ -30,9 +30,12 @@ export default function Header({ gameVersion, onUploadGameData }: HeaderProps) {
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
             MWI Combat Averagelator
           </h1>
+          <span className="hidden sm:inline-block text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
+            b{__APP_VERSION__}
+          </span>
           {gameVersion && (
             <span className="hidden sm:inline-block text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
-              v{gameVersion}
+              game v{gameVersion}
             </span>
           )}
         </div>
