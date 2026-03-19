@@ -886,11 +886,6 @@ function MonsterOptCard({
         <span className="text-[11px] font-medium text-gray-200 w-8 text-right shrink-0">
           {mr.optimizedLevel}
         </span>
-        {mr.optimizedLevel > 0 && (
-          <span className="text-[9px] text-gray-600 shrink-0">
-            ({Math.floor(mr.optimizedLevel * 0.98)}&ndash;{Math.ceil(mr.optimizedLevel * 1.05)})
-          </span>
-        )}
 
         <span
           className={`text-[11px] font-medium w-10 text-right shrink-0 ${
@@ -918,6 +913,11 @@ function MonsterOptCard({
       {/* Expanded detail */}
       {expanded && (
         <div className="px-3 pb-3 pt-1">
+          {mr.optimizedLevel > 0 && (
+            <div className="text-[10px] text-gray-500 mb-2">
+              Estimated range: <span className="text-gray-300">{Math.floor(mr.optimizedLevel * 0.98)}&ndash;{Math.ceil(mr.optimizedLevel * 1.05)}</span>
+            </div>
+          )}
           <OptimizedLoadoutDetail
             config={mr.optimizedConfig}
             changes={mr.changes}
