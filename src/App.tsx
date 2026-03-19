@@ -60,6 +60,20 @@ function App() {
     communityBuffLevel: 0,
     playerBonuses: [defaultPlayerBonus()],
   });
+  const [labXpBonuses, setLabXpBonuses] = useState<XpBonusSettings>({
+    communityBuffLevel: 0,
+    playerBonuses: [{
+      ...defaultPlayerBonus(),
+      seals: {
+        attackSpeed: true,
+        castSpeed: true,
+        damage: true,
+        criticalRate: true,
+        combatDrop: false,
+        wisdom: false,
+      },
+    }],
+  });
 
   const primaryConfig = playerConfigs[0] ?? null;
 
@@ -120,9 +134,9 @@ function App() {
       if (!gameData) return;
       setLabLoadoutNameMap(loadoutNameMap);
       setLabDefaultLoadoutName(defaultLoadoutName);
-      runLabyrinth(defaultConfig, coffeeCrate, foodCrate, xpBonuses, gameData, monsterLoadoutMap, successRate);
+      runLabyrinth(defaultConfig, coffeeCrate, foodCrate, labXpBonuses, gameData, monsterLoadoutMap, successRate);
     },
-    [xpBonuses, gameData, runLabyrinth]
+    [labXpBonuses, gameData, runLabyrinth]
   );
 
   const handleRunZoneRanking = useCallback(
@@ -324,13 +338,13 @@ function App() {
                   onRun={handleRunLabyrinth}
                   isRunning={labRunning}
                   progress={labProgress}
-                  xpBonuses={xpBonuses}
+                  xpBonuses={labXpBonuses}
                   onRawCharData={setLabRawCharData}
                 />
 
                 <BonusSettings
-                  settings={xpBonuses}
-                  onChange={setXpBonuses}
+                  settings={labXpBonuses}
+                  onChange={setLabXpBonuses}
                   playerNames={["Labyrinth Player"]}
                 />
               </>
@@ -493,7 +507,7 @@ function App() {
                     defaultLoadoutName={labDefaultLoadoutName}
                     rawCharData={labRawCharData}
                     gameData={gameData}
-                    withSeals={xpBonuses.playerBonuses[0]?.seals?.wisdom ?? false}
+                    withSeals={labXpBonuses.playerBonuses[0]?.seals?.wisdom ?? false}
                   />
                 )}
 
