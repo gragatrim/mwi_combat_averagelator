@@ -46,6 +46,7 @@ export interface LabOptWorkerStartMessage {
   successRate: number;
   bestGearMode: BestGearMode;
   useBestAbilities: boolean;
+  singleMonsterHrid: string | null;
 }
 
 export interface LabOptWorkerProgressMessage {
@@ -113,6 +114,7 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
     successRate,
     bestGearMode,
     useBestAbilities,
+    singleMonsterHrid,
   } = event.data;
 
   try {
@@ -136,7 +138,8 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
         } satisfies LabOptWorkerProgressMessage);
       },
       bestGearMode,
-      useBestAbilities
+      useBestAbilities,
+      singleMonsterHrid
     );
 
     self.postMessage({

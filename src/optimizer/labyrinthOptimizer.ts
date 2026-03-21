@@ -494,9 +494,13 @@ export function optimizeLabyrinthLoadouts(
   successRate: number,
   onProgress?: (progress: LabyrinthOptProgress) => void,
   bestGearMode: BestGearMode = "owned",
-  useBestAbilities: boolean = false
+  useBestAbilities: boolean = false,
+  singleMonsterHrid: string | null = null
 ): LabyrinthOptResult {
-  const monsters = getLabyrinthMonsters(gameData);
+  const allMonsters = getLabyrinthMonsters(gameData);
+  const monsters = singleMonsterHrid 
+    ? (allMonsters.includes(singleMonsterHrid) ? [singleMonsterHrid] : allMonsters)
+    : allMonsters;
   const { abilityLevels, combatLoadouts } = charData;
 
   const defaultLoadout =
@@ -613,7 +617,7 @@ export function optimizeLabyrinthLoadouts(
 
     // In "best10R" mode, skip optimization for monsters that can already
     // reach the highest floor any monster reaches — they're not the bottleneck.
-    if (bestGearMode === "best10R" && baseline.maxLevel >= bestFloorMin) {
+    if (bestGearMode === "best10R" && baseline.maxLevel >= bestFloorMin && !singleMonsterHrid) {
       monsterResults.push({
         monsterHrid,
         baselineLevel: baseline.maxLevel,
@@ -654,7 +658,7 @@ export function optimizeLabyrinthLoadouts(
 
       // In best7/best10R mode, upgrade non-weapon slots to pool-quality gear
       if (bestGearMode !== "owned") {
-        const skipSlots = bestGearMode === "best10R" ? BEST10R_SKIP_SLOTS : undefined;
+        const skipSlots = (bestGearMode === "best10R" && !singleMonsterHrid) ? BEST10R_SKIP_SLOTS : undefined;
         initializeGearFromPool(config, gearPool, skipSlots);
       }
 
@@ -870,7 +874,7 @@ export function optimizeLabyrinthLoadouts(
         : NON_WEAPON_EQUIPMENT_SLOTS;
 
       const effectiveGearSlots = bestGearMode === "best10R"
-        ? gearSlots.filter(s => !BEST10R_SKIP_SLOTS.has(s))
+        ? (singleMonsterHrid ? gearSlots : gearSlots.filter(s => !BEST10R_SKIP_SLOTS.has(s)))
         : gearSlots;
 
       for (const slot of effectiveGearSlots) {

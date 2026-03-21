@@ -174,6 +174,7 @@ export default function LabyrinthPanel({
   const [optError, setOptError] = useState<string | null>(null);
   const [bestGearMode, setBestGearMode] = useState<BestGearMode>("owned");
   const [useBestAbilities, setUseBestAbilities] = useState(false);
+  const [singleMonsterHrid, setSingleMonsterHrid] = useState<string | null>(null);
   const optWorkerRef = useRef<Worker | null>(null);
 
   // --- Derived data ---
@@ -184,6 +185,13 @@ export default function LabyrinthPanel({
   const loadouts = charData?.combatLoadouts ?? [];
   const defaultLoadout =
     loadouts.find((l) => l.id === defaultLoadoutId) ?? null;
+
+  const monsterOptions = useMemo(() => {
+    const monsters = getLabyrinthMonsters(gameData);
+    return monsters
+      .map(hrid => ({ value: hrid, label: hridToName(hrid) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [gameData]);
 
   // --- Parse handler ---
   const handleParse = useCallback(() => {
@@ -309,9 +317,10 @@ export default function LabyrinthPanel({
       successRate,
       bestGearMode,
       useBestAbilities,
+      singleMonsterHrid,
     };
     worker.postMessage(startMsg);
-  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities]);
+  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities, singleMonsterHrid]);
 
   const handleCancelOptimize = useCallback(() => {
     if (optWorkerRef.current) {
@@ -685,6 +694,28 @@ export default function LabyrinthPanel({
                   </div>
                 </div>
               </label>
+
+              {/* Single monster mode */}
+              <div>
+                <div className="text-xs text-gray-300 mb-1">Target monster</div>
+                <select
+                  value={singleMonsterHrid ?? "all"}
+                  onChange={(e) => setSingleMonsterHrid(e.target.value === "all" ? null : e.target.value)}
+                  disabled={optRunning}
+                  className="w-full bg-gray-900 text-gray-300 text-xs border border-gray-600 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="all">All monsters</option>
+                  {monsterOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <div className="text-[10px] text-gray-500 mt-0.5">
+                  {singleMonsterHrid 
+                    ? "Optimize for one monster only (tests all gear slots)"
+                    : "Optimize for all monsters (best10R skips back/feet)"
+                  }
+                </div>
+              </div>
 
               {/* Optimize / Cancel buttons */}
               {!optRunning ? (
