@@ -1054,7 +1054,7 @@ function findMaxLabyrinthLevelCounted(
     sealBuffs,
     wisdomBuffBonus,
     gameData,
-    300,
+    360,
     () => {
       simCount++;
     },

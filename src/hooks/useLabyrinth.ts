@@ -115,7 +115,7 @@ export function useLabyrinth(): UseLabyrinthReturn {
             sealBuffs,
             wisdomBuffBonus,
             gameData,
-            300,
+            360,
             (p) => setProgress(p),
             monsterLoadoutMap,
             successRate

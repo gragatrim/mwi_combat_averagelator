@@ -397,7 +397,7 @@ export function findMaxLabyrinthLevel(
   sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
-  maxLevel: number = 300,
+  maxLevel: number = 360,
   onProgress?: (level: number) => void,
   successRate: number = 0.5
 ): { maxLevel: number; killTimeNs: number; rawMaxLevel: number } {
@@ -537,7 +537,7 @@ export function findAllLabyrinthLevels(
   sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
-  maxLevel: number = 300,
+  maxLevel: number = 360,
   onProgress?: (progress: LabyrinthProgress) => void,
   monsterLoadoutMap?: Record<string, PlayerConfig>,
   successRate: number = 0.5
