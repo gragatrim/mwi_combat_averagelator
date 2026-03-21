@@ -39,6 +39,7 @@ export interface MonsterOptResult {
   monsterHrid: string;
   baselineLevel: number;
   optimizedLevel: number;
+  rawOptimizedLevel: number;
   levelDelta: number;
   optimizedConfig: PlayerConfig;
   weaponHrid: string | null;
@@ -552,7 +553,7 @@ export function optimizeLabyrinthLoadouts(
   const findMax = (
     config: PlayerConfig,
     monsterHrid: string
-  ): { maxLevel: number; killTimeNs: number } => {
+  ): { maxLevel: number; rawMaxLevel: number; killTimeNs: number } => {
     const res = findMaxLabyrinthLevelCounted(
       config,
       monsterHrid,
@@ -563,7 +564,7 @@ export function optimizeLabyrinthLoadouts(
       successRate
     );
     simRuns += res.simCount;
-    return { maxLevel: res.maxLevel, killTimeNs: res.killTimeNs };
+    return { maxLevel: res.maxLevel, rawMaxLevel: res.rawMaxLevel, killTimeNs: res.killTimeNs };
   };
 
   const monsterResults: MonsterOptResult[] = [];
@@ -571,7 +572,7 @@ export function optimizeLabyrinthLoadouts(
   // --- Pre-pass: compute all baselines first ---
   // We need all baselines upfront so we can determine which floor is the
   // player's current ceiling and skip monsters that already reach it.
-  const baselines: { monsterHrid: string; config: PlayerConfig; maxLevel: number; killTimeNs: number }[] = [];
+  const baselines: { monsterHrid: string; config: PlayerConfig; maxLevel: number; rawMaxLevel: number; killTimeNs: number }[] = [];
   for (let mi = 0; mi < monsters.length; mi++) {
     const monsterHrid = monsters[mi];
     const overrideId = monsterOverrides[monsterHrid];
@@ -589,7 +590,7 @@ export function optimizeLabyrinthLoadouts(
     });
 
     const result = findMax(baselineLoadout.config, monsterHrid);
-    baselines.push({ monsterHrid, config: baselineLoadout.config, maxLevel: result.maxLevel, killTimeNs: result.killTimeNs });
+    baselines.push({ monsterHrid, config: baselineLoadout.config, maxLevel: result.maxLevel, rawMaxLevel: result.rawMaxLevel, killTimeNs: result.killTimeNs });
   }
 
   // Find the highest floor any monster can reach with current gear.
@@ -603,8 +604,8 @@ export function optimizeLabyrinthLoadouts(
   }
 
   for (let mi = 0; mi < monsters.length; mi++) {
-    const { monsterHrid, config: baselineConfig, maxLevel: baselineMaxLevel, killTimeNs: baselineKillTime } = baselines[mi];
-    const baseline = { maxLevel: baselineMaxLevel, killTimeNs: baselineKillTime };
+    const { monsterHrid, config: baselineConfig, maxLevel: baselineMaxLevel, rawMaxLevel: baselineRawLevel, killTimeNs: baselineKillTime } = baselines[mi];
+    const baseline = { maxLevel: baselineMaxLevel, rawMaxLevel: baselineRawLevel, killTimeNs: baselineKillTime };
 
     onProgress?.({
       phase: "optimizing",
@@ -622,6 +623,7 @@ export function optimizeLabyrinthLoadouts(
         monsterHrid,
         baselineLevel: baseline.maxLevel,
         optimizedLevel: baseline.maxLevel,
+        rawOptimizedLevel: baseline.rawMaxLevel,
         levelDelta: 0,
         optimizedConfig: baselineConfig,
         weaponHrid: getEquippedWeaponHrid(baselineConfig),
@@ -672,7 +674,8 @@ export function optimizeLabyrinthLoadouts(
       );
 
       // Find initial level with this weapon + existing abilities
-      let currentResult = findMax(config, monsterHrid);
+      const initialResult = findMax(config, monsterHrid);
+      let currentResult: { maxLevel: number; killTimeNs: number } = initialResult;
       let currentLevel = currentResult.maxLevel;
 
       // --- Optimize ability slots (greedy) ---
@@ -1000,10 +1003,14 @@ export function optimizeLabyrinthLoadouts(
     // Compute changes
     const changes = computeChanges(baselineConfig, bestOverallConfig);
 
+    // Get the raw (unadjusted) max level for range display
+    const finalRaw = findMax(bestOverallConfig, monsterHrid);
+
     monsterResults.push({
       monsterHrid,
       baselineLevel: baseline.maxLevel,
       optimizedLevel: bestOverallLevel,
+      rawOptimizedLevel: finalRaw.rawMaxLevel,
       levelDelta: bestOverallLevel - baseline.maxLevel,
       optimizedConfig: bestOverallConfig,
       weaponHrid: getEquippedWeaponHrid(bestOverallConfig),
@@ -1049,7 +1056,7 @@ function findMaxLabyrinthLevelCounted(
   wisdomBuffBonus: number,
   gameData: GameData,
   successRate: number
-): { maxLevel: number; killTimeNs: number; simCount: number } {
+): { maxLevel: number; rawMaxLevel: number; killTimeNs: number; simCount: number } {
   let simCount = 0;
   const result = findMaxLabyrinthLevel(
     config,

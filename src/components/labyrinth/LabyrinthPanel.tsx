@@ -9,7 +9,7 @@ import type {
   CrateTier,
   LabyrinthProgress,
 } from "../../features/labyrinthSimulator";
-import { getLabyrinthMonsters } from "../../features/labyrinthSimulator";
+import { getLabyrinthMonsters, computeAdjustedLevel, DEFAULT_LEVEL_CV } from "../../features/labyrinthSimulator";
 import {
   parseFullCharacterData,
   type FullCharacterData,
@@ -944,9 +944,11 @@ function MonsterOptCard({
       {/* Expanded detail */}
       {expanded && (
         <div className="px-3 pb-3 pt-1">
-          {mr.optimizedLevel > 0 && (
+          {mr.optimizedLevel > 0 && mr.rawOptimizedLevel > 0 && (
             <div className="text-[10px] text-gray-500 mb-2">
-              Estimated range: <span className="text-gray-300">{Math.floor(mr.optimizedLevel * 0.98)}&ndash;{Math.ceil(mr.optimizedLevel * 1.05)}</span>
+              Estimated range: <span className="text-gray-300">
+                {computeAdjustedLevel(mr.rawOptimizedLevel, 0.9, DEFAULT_LEVEL_CV)}&ndash;{computeAdjustedLevel(mr.rawOptimizedLevel, 0.1, DEFAULT_LEVEL_CV)}
+              </span>
             </div>
           )}
           <OptimizedLoadoutDetail
