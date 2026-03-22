@@ -29,7 +29,7 @@ export const LAB_UPGRADE_MAX_LEVEL: Record<string, number> = {
   torch: 15, shroud: 8, beacon: 5, cooldown: 6,
 };
 export const LAB_UPGRADE_COST_PER_LEVEL: Record<string, number> = {
-  torch: 100, shroud: 80, beacon: 60, cooldown: 800,
+  torch: 100, shroud: 80, beacon: 60, cooldown: 600, // Updated from 800 based on game data verification
 };
 
 /** Floor definitions: [floorNum, minLevel, maxLevel, gridStr] */
