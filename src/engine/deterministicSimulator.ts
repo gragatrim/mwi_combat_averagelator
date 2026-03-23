@@ -116,6 +116,12 @@ export interface DeterministicSimConfig {
    * Set to 0 to disable.
    */
   encounterTransitionDelay?: number;
+  /**
+   * When true, zero out taskDamage on all players. Labyrinth monsters
+   * are not combat task targets, so the task damage bonus from equipment
+   * (e.g. expert_task_badge) should not apply.
+   */
+  isLabyrinth?: boolean;
 }
 
 // =============================================================================
@@ -279,6 +285,15 @@ class DeterministicSimulator {
     if (this.zone.buffs) {
       for (const player of this.players) {
         player.zoneBuffs = this.zone.buffs.map((bd) => new Buff(bd));
+      }
+    }
+
+    // In labyrinth mode, suppress taskDamage on all players — labyrinth
+    // monsters are not combat task targets, so the task damage bonus from
+    // equipment (e.g. expert_task_badge) should not apply.
+    if (this.config.isLabyrinth) {
+      for (const player of this.players) {
+        player.suppressTaskDamage = true;
       }
     }
 

@@ -195,6 +195,14 @@ class CombatUnit {
 
   isOutOfMana: boolean = false;
 
+  /**
+   * When true, taskDamage is zeroed after every updateCombatDetails() call.
+   * Used for labyrinth fights where monsters are not combat task targets,
+   * so the task damage bonus from equipment (e.g. expert_task_badge)
+   * should not apply.
+   */
+  suppressTaskDamage: boolean = false;
+
   // Base levels which don't change after initialization
   staminaLevel: number = 1;
   intelligenceLevel: number = 1;
@@ -547,6 +555,12 @@ class CombatUnit {
     // Tenacity (reduces CC durations)
     this.combatDetails.combatStats.tenacity +=
       this.getBuffBoost("/buff_types/tenacity").flatBoost;
+
+    // Suppress task damage in labyrinth mode — labyrinth monsters
+    // are not combat task targets.
+    if (this.suppressTaskDamage) {
+      this.combatDetails.combatStats.taskDamage = 0;
+    }
   }
 
   // ---------------------------------------------------------------------------

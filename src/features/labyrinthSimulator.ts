@@ -356,10 +356,12 @@ export function simulateLabyrinthFight(
   // Run the deterministic simulator for a single encounter.
   // labyrinthTargetLevel in the config tells the sim to apply
   // proportional scaling to all spawned monsters.
+  // isLabyrinth disables taskDamage (labyrinth monsters are not task targets).
   const simulator = new DeterministicSimulator([player], zone, gameData, {
     stopAfterFirstEncounter: true,
     labyrinthTargetLevel: targetLevel,
     maxSimTimeNs: timeLimitNs,
+    isLabyrinth: true,
   });
   const simResult = simulator.simulate();
 

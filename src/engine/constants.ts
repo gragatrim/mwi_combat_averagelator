@@ -208,6 +208,7 @@ export const EQUIPMENT_COMBAT_STAT_KEYS = [
   "attackSpeed",
   "foodHaste",
   "drinkConcentration",
+  "taskDamage",
   "autoAttackDamage",
   "abilityDamage",
   "staminaExperience",
