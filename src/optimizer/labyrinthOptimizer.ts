@@ -971,6 +971,52 @@ export function optimizeLabyrinthLoadouts(
         }
       }
 
+      // --- Re-optimize special ability after gear changes ---
+      // Gear optimization may have significantly changed the level, making
+      // a special ability worthwhile that wasn't at the pre-gear level.
+      // When no special is currently set, any compatible special that can
+      // clear the current level is preferred over having no special at all.
+      {
+        let bestLevel2 = currentLevel;
+        let bestKillTime2 = currentResult.killTimeNs;
+        let bestSpecial2: AbilityDTO | null = config.specialAbility ?? null;
+        const hadNoSpecial = !bestSpecial2;
+
+        for (const abilityHrid of compatSpecial) {
+          const dto = buildAbilityDTO(abilityHrid, abilityLevels, gameData, useBestAbilities);
+          config.specialAbility = dto;
+
+          const test = simFight(config, monsterHrid, bestLevel2);
+          if (!test.success) continue;
+
+          let probeLevel = bestLevel2;
+          let probeKillTime = test.killTimeNs;
+          for (let delta = 1; delta <= 10; delta++) {
+            const next = simFight(config, monsterHrid, bestLevel2 + delta);
+            if (next.success) {
+              probeLevel = bestLevel2 + delta;
+              probeKillTime = next.killTimeNs;
+            } else break;
+          }
+
+          if (
+            probeLevel > bestLevel2 ||
+            (probeLevel === bestLevel2 && probeKillTime < bestKillTime2) ||
+            (hadNoSpecial && !bestSpecial2 && probeLevel >= bestLevel2)
+          ) {
+            bestLevel2 = probeLevel;
+            bestKillTime2 = probeKillTime;
+            bestSpecial2 = dto;
+          }
+        }
+
+        config.specialAbility = bestSpecial2;
+        if (bestLevel2 > currentLevel) {
+          currentLevel = bestLevel2;
+          currentResult = { maxLevel: bestLevel2, killTimeNs: bestKillTime2 };
+        }
+      }
+
       // Final re-check with full binary search to get accurate max
       const finalResult = findMax(config, monsterHrid);
       let bestWeaponLevel = finalResult.maxLevel;
