@@ -688,12 +688,21 @@ export function optimizeLabyrinthLoadouts(
 
       for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
         const originalAbility = config.abilities[slot];
-        let bestLevel = currentLevel;
-        let bestKillTime = currentResult.killTimeNs;
         let bestAbility: AbilityDTO | null = 
           originalAbility && compatRegular.includes(originalAbility.hrid)
             ? originalAbility
             : null;
+
+        // If the equipped ability is incompatible, clear it and re-baseline
+        if (!bestAbility && originalAbility) {
+          config.abilities[slot] = null;
+          const rebaseResult = findMax(config, monsterHrid);
+          currentLevel = rebaseResult.maxLevel;
+          currentResult = rebaseResult;
+        }
+
+        let bestLevel = currentLevel;
+        let bestKillTime = currentResult.killTimeNs;
 
         // Remove current slot's ability from used set so it can be reassigned here
         if (originalAbility?.hrid) usedAbilities.delete(originalAbility.hrid);
@@ -820,12 +829,22 @@ export function optimizeLabyrinthLoadouts(
 
       // --- Optimize special ability slot ---
       {
-        let bestLevel = currentLevel;
-        let bestKillTime = currentResult.killTimeNs;
         let bestSpecial: AbilityDTO | null = 
           config.specialAbility && compatSpecial.includes(config.specialAbility.hrid)
             ? config.specialAbility
             : null;
+
+        // If the equipped special is incompatible, clear it and re-baseline
+        // so we compare compatible specials against the true "no special" performance.
+        if (!bestSpecial && config.specialAbility) {
+          config.specialAbility = null;
+          const noSpecialResult = findMax(config, monsterHrid);
+          currentLevel = noSpecialResult.maxLevel;
+          currentResult = noSpecialResult;
+        }
+
+        let bestLevel = currentLevel;
+        let bestKillTime = currentResult.killTimeNs;
 
         for (const abilityHrid of compatSpecial) {
           const dto = buildAbilityDTO(abilityHrid, abilityLevels, gameData, useBestAbilities);
