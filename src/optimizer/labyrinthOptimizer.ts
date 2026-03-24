@@ -690,7 +690,10 @@ export function optimizeLabyrinthLoadouts(
         const originalAbility = config.abilities[slot];
         let bestLevel = currentLevel;
         let bestKillTime = currentResult.killTimeNs;
-        let bestAbility: AbilityDTO | null = originalAbility;
+        let bestAbility: AbilityDTO | null = 
+          originalAbility && compatRegular.includes(originalAbility.hrid)
+            ? originalAbility
+            : null;
 
         // Remove current slot's ability from used set so it can be reassigned here
         if (originalAbility?.hrid) usedAbilities.delete(originalAbility.hrid);
@@ -819,7 +822,10 @@ export function optimizeLabyrinthLoadouts(
       {
         let bestLevel = currentLevel;
         let bestKillTime = currentResult.killTimeNs;
-        let bestSpecial: AbilityDTO | null = config.specialAbility;
+        let bestSpecial: AbilityDTO | null = 
+          config.specialAbility && compatSpecial.includes(config.specialAbility.hrid)
+            ? config.specialAbility
+            : null;
 
         for (const abilityHrid of compatSpecial) {
           const dto = buildAbilityDTO(abilityHrid, abilityLevels, gameData, useBestAbilities);
