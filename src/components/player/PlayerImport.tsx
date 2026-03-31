@@ -5,7 +5,7 @@
 // 1. Toolasha / combat-sim export (single loadout per paste)
 // 2. Full character data (init_character_data) with multiple combat loadouts
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { GameData, PlayerConfig } from "../../engine/types";
 import { parsePlayerData, PlayerDataError } from "../../data/playerData";
 import {
@@ -13,6 +13,7 @@ import {
   type FullCharacterData,
 } from "../../data/fullCharacterData";
 import { hridToName } from "../../utils/formatting";
+import { saveCombatSlots, loadCombatSlots } from "../../hooks/usePersistedCharData";
 
 const MAX_PARTY_SIZE = 5;
 
@@ -44,7 +45,16 @@ export default function PlayerImport({
   playerConfigs,
   onPartyUpdate,
 }: PlayerImportProps) {
-  const [slots, setSlots] = useState<SlotState[]>([makeEmptySlot()]);
+  const [slots, setSlots] = useState<SlotState[]>(() => {
+    const saved = loadCombatSlots();
+    if (saved && saved.length > 0) {
+      return saved.map((text) => ({ ...makeEmptySlot(), jsonText: text }));
+    }
+    return [makeEmptySlot()];
+  });
+
+  // Auto-parse restored slots on first mount
+  const hasAutoRestored = useRef(false);
 
   /** Apply a PlayerConfig at a given slot index */
   const applyConfig = useCallback(
@@ -173,6 +183,22 @@ export default function PlayerImport({
     },
     [slots, applyConfig]
   );
+
+  // Auto-parse restored slots on first mount
+  useEffect(() => {
+    if (hasAutoRestored.current) return;
+    hasAutoRestored.current = true;
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i].jsonText.trim()) {
+        handleParse(i);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist slot JSON text whenever it changes
+  useEffect(() => {
+    saveCombatSlots(slots.map((s) => s.jsonText));
+  }, [slots]);
 
   const handleKeyDown = (
     index: number,

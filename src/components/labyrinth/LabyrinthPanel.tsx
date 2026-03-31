@@ -3,7 +3,7 @@
 // selection, loadout optimizer, and results for labyrinth simulations
 // =============================================================================
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import type { GameData, PlayerConfig, BuffData } from "../../engine/types";
 import type {
   CrateTier,
@@ -28,6 +28,7 @@ import type {
 } from "../../optimizer/labyrinthOptimizer.worker";
 import { serializeCharData } from "../../optimizer/labyrinthOptimizer.worker";
 import type { XpBonusSettings } from "../../hooks/useSimulation";
+import { saveLabJson, loadLabJson } from "../../hooks/usePersistedCharData";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -144,7 +145,8 @@ export default function LabyrinthPanel({
   onRawCharData,
 }: LabyrinthPanelProps) {
   // --- Character data state ---
-  const [jsonText, setJsonText] = useState("");
+  const [jsonText, setJsonText] = useState(() => loadLabJson() ?? "");
+  const hasAutoRestored = useRef(false);
   const [parseStatus, setParseStatus] = useState<{
     type: "idle" | "success" | "error";
     message: string;
@@ -233,6 +235,20 @@ export default function LabyrinthPanel({
       });
     }
   }, [jsonText, gameData]);
+
+  // Auto-parse restored JSON on first mount
+  useEffect(() => {
+    if (hasAutoRestored.current) return;
+    hasAutoRestored.current = true;
+    if (jsonText.trim()) {
+      handleParse();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist lab JSON whenever it changes
+  useEffect(() => {
+    saveLabJson(jsonText);
+  }, [jsonText]);
 
   // --- Run handler ---
   const handleRun = useCallback(() => {
