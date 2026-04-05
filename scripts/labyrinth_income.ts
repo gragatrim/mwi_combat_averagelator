@@ -1,14 +1,12 @@
 #!/usr/bin/env tsx
 // =============================================================================
-// Labyrinth Income Optimizer
+// Labyrinth Income Optimizer — properly models floor clearability + shroud usage
 // =============================================================================
-// Computes optimal floor target + torch allocation to maximize gold/hour.
-//
 // Usage: npx tsx scripts/labyrinth_income.ts live_data/gragatrim_full_char_data.json
 
 import { readFileSync } from "fs";
 
-// Redirect simulator diagnostics to stderr
+// Suppress simulator diagnostics
 const origLog = console.log;
 console.log = (...args: unknown[]) => {
   const first = args[0];
@@ -34,22 +32,20 @@ import {
   RUSH_TORCH_EVENTS,
   EXPERT_TORCH_PRESERVATION,
   RUSH_OVERHEAD_FACTOR,
-  BASE_SKILL_ACTION_TIME_MS,
   GRID_DIM,
   TREASURE_ROOM_COUNT,
   LAB_UPGRADE_BASES,
   LAB_UPGRADE_PER_LEVEL,
+  PERCOLATION_THRESHOLD,
 } from "../src/features/labyrinthAnalyzer/constants";
-import { getLabyrinthUpgradeLevels, getBaseSkillLevels } from "../src/features/labyrinthAnalyzer/skillBuffs";
-import Buff from "../src/engine/buff";
+import { getLabyrinthUpgradeLevels } from "../src/features/labyrinthAnalyzer/skillBuffs";
 
 // =============================================================================
-// Chest values (from user input - current market prices)
+// Chest values (current market prices)
 // =============================================================================
 const COMBAT_CHEST_VALUE = 1_300_000;
 const SKILLING_CHEST_VALUE = 61_700;
 const REFINEMENT_CHEST_VALUE = 2_210_000;
-const TOKEN_VALUE = 0; // tokens have value via upgrades but we'll track them separately
 
 // =============================================================================
 // Load data
@@ -62,11 +58,10 @@ console.error(`Loading character data from ${charDataPath}...`);
 const charJson = readFileSync(charDataPath, "utf-8");
 const charData = parseFullCharacterData(charJson, gameData);
 const rawCharData = JSON.parse(charJson);
-
 console.error(`Character: ${charData.hrid}`);
 
 // =============================================================================
-// Detect crate tiers & build buffs
+// Setup: crates, loadouts, upgrades
 // =============================================================================
 function detectCrateTier(itemHrid: string): CrateTier {
   if (!itemHrid) return "none";
@@ -81,514 +76,669 @@ const foodTier = detectCrateTier(charData.labyrinthCrates.foodCrate);
 console.error(`Crates: coffee=${coffeeTier}, food=${foodTier}`);
 const crateBuffs = buildCrateBuffs(coffeeTier, foodTier);
 
-// =============================================================================
-// Build per-monster loadout map
-// =============================================================================
 const loadoutById = new Map<string, CombatLoadout>();
-for (const loadout of charData.combatLoadouts) {
-  loadoutById.set(loadout.id, loadout);
-}
+for (const loadout of charData.combatLoadouts) loadoutById.set(loadout.id, loadout);
 
 const monsterLoadoutMap: Record<string, PlayerConfig> = {};
 for (const [monsterHrid, loadoutId] of Object.entries(charData.labyrinthMonsterLoadouts)) {
   const loadout = loadoutById.get(loadoutId);
   if (loadout) monsterLoadoutMap[monsterHrid] = loadout.config;
 }
-
 const defaultConfig = charData.combatLoadouts[0]?.config;
 if (!defaultConfig) { console.error("No combat loadouts found"); process.exit(1); }
 
-// =============================================================================
-// Get upgrade levels
-// =============================================================================
 const upgradeLevels = getLabyrinthUpgradeLevels(rawCharData);
 const torchCap = LAB_UPGRADE_BASES.torch + upgradeLevels.torch * LAB_UPGRADE_PER_LEVEL.torch;
 const shroudCap = LAB_UPGRADE_BASES.shroud + upgradeLevels.shroud * LAB_UPGRADE_PER_LEVEL.shroud;
 const beaconCap = LAB_UPGRADE_BASES.beacon + upgradeLevels.beacon * LAB_UPGRADE_PER_LEVEL.beacon;
 const cooldownHours = LAB_UPGRADE_BASES.cooldown + upgradeLevels.cooldown * LAB_UPGRADE_PER_LEVEL.cooldown;
 
-console.error(`\nUpgrade levels: torch=${upgradeLevels.torch} (${torchCap}), shroud=${upgradeLevels.shroud} (${shroudCap}), beacon=${upgradeLevels.beacon} (${beaconCap}), cooldown=${upgradeLevels.cooldown} (${cooldownHours}h)`);
-console.error(`Unspent tokens: ${upgradeLevels.points}`);
+console.error(`Upgrades: torch=${upgradeLevels.torch}(${torchCap}), shroud=${upgradeLevels.shroud}(${shroudCap}), beacon=${upgradeLevels.beacon}(${beaconCap}), cooldown=${upgradeLevels.cooldown}(${cooldownHours}h)`);
+console.error(`Tokens: ${upgradeLevels.points}`);
 
 // =============================================================================
-// Run full floor analysis to get clearability
+// Floor clearability analysis
 // =============================================================================
 console.error("\nRunning floor clearability analysis...");
 const analysis = generateAnalysis(rawCharData, null, gameData, false);
-
 console.error(`Max floor (no shrouds): ${analysis.maxFloorNoShrouds}`);
-console.error(`Target floor: ${analysis.targetFloor}`);
 
 // =============================================================================
-// Simulate combat kill times for all labyrinth monsters at various levels
+// Combat kill times
 // =============================================================================
-console.error("\nSimulating combat kill times...");
-
+console.error("\nSimulating combat kill times per floor level...");
 const labMonsters = getLabyrinthMonsters(gameData);
 
-// For each monster, get kill times at the midpoint level of each floor
-interface MonsterKillTimeData {
-  monsterHrid: string;
-  killTimesByLevel: Map<number, number>; // level -> kill time in seconds
-  maxClearableLevel: number;
-}
+// Map: level → average kill time across all monsters
+const avgKillTimeCache = new Map<number, number>();
 
-const monsterData: MonsterKillTimeData[] = [];
+function getAvgCombatTime(level: number): number {
+  const rounded = Math.round(level / 10) * 10;
+  if (avgKillTimeCache.has(rounded)) return avgKillTimeCache.get(rounded)!;
 
-for (const monsterHrid of labMonsters) {
-  const config = monsterLoadoutMap[monsterHrid] ?? defaultConfig;
-  const name = monsterHrid.split("/").pop()!;
-  const killTimesByLevel = new Map<number, number>();
-  
-  // Test levels from 20 to 420 in steps of 10
-  let maxClearable = 0;
-  for (let level = 20; level <= 420; level += 10) {
-    process.stderr.write(`  ${name}: testing level ${level}\r`);
-    const result = simulateLabyrinthFight(
-      config, monsterHrid, level, crateBuffs, [], 0, gameData
-    );
-    if (result.success) {
-      killTimesByLevel.set(level, result.killTimeNs / 1e9);
-      maxClearable = level;
-    } else {
-      // Interpolate: this level fails, so max is between last success and here
-      killTimesByLevel.set(level, 120); // cap at time limit
-      break;
-    }
-  }
-  
-  process.stderr.write(`  ${name}: max clearable ~${maxClearable}, tested ${killTimesByLevel.size} levels\n`);
-  monsterData.push({ monsterHrid, killTimesByLevel, maxClearableLevel: maxClearable });
-}
-
-// =============================================================================
-// Model per-floor time & rewards
-// =============================================================================
-
-// Average combat kill time for a given level (average across all monsters that can be encountered)
-function avgCombatTimeAtLevel(level: number): number {
   let totalTime = 0;
   let count = 0;
-  for (const md of monsterData) {
-    // Find closest level we tested
-    const closest = Math.round(level / 10) * 10;
-    const kt = md.killTimesByLevel.get(closest);
-    if (kt !== undefined) {
-      totalTime += kt;
-      count++;
-    }
+  for (const monsterHrid of labMonsters) {
+    const config = monsterLoadoutMap[monsterHrid] ?? defaultConfig;
+    const result = simulateLabyrinthFight(config, monsterHrid, rounded, crateBuffs, [], 0, gameData);
+    totalTime += result.success ? result.killTimeNs / 1e9 : 120;
+    count++;
   }
-  return count > 0 ? totalTime / count : 120;
+  const avg = count > 0 ? totalTime / count : 120;
+  avgKillTimeCache.set(rounded, avg);
+  return avg;
 }
 
-// Skill room time: ~10s base, affected by action speed but in the lab it's simpler
-const SKILL_ROOM_TIME_S = 10; // approximate average
+// Pre-compute for all relevant floor levels
+for (const [, fmin, fmax] of FLOORS) {
+  const mid = Math.round((fmin + fmax) / 2 / 10) * 10;
+  if (mid <= 300) { // Don't waste time on floors we clearly can't reach
+    process.stderr.write(`  Level ${mid}...\r`);
+    getAvgCombatTime(mid);
+  }
+}
+console.error("  Done.                    ");
 
-interface FloorTimeReward {
+// =============================================================================
+// Shroud model: estimate shrouds needed per floor
+// =============================================================================
+// On an 8×8 grid, a path from one side to the other needs ~8 steps minimum.
+// With clearRate p, the expected blocked cells on a shortest-ish path is roughly:
+//   blocked = pathLength * (1 - p)
+// But the grid allows routing around blocked cells, so shrouds are only needed
+// when you MUST go through a blocked cell (no alternative path exists).
+//
+// The percolation model: at p > 0.59, paths almost always exist.
+// Below 0.59, you need shrouds proportional to how far below threshold you are.
+//
+// Empirical model from the Python analyzer's shroud estimates:
+//   p >= 0.95: 0 shrouds    p >= 0.80: 0-1    p >= 0.65: 1-2
+//   p >= 0.55: 2-4          p >= 0.45: 3-5    p >= 0.35: 4-7    below: 6-9
+
+function expectedShroudsForFloor(clearRate: number): number {
+  if (clearRate >= 0.95) return 0;
+  if (clearRate >= 0.80) return 0.5;
+  if (clearRate >= 0.65) return 1.5;
+  if (clearRate >= 0.55) return 3;
+  if (clearRate >= 0.45) return 4;
+  if (clearRate >= 0.35) return 5.5;
+  if (clearRate >= 0.20) return 7.5;
+  if (clearRate >= 0.10) return 9;
+  return 12; // basically impossible
+}
+
+// Probability of completing a floor given clearRate and shrouds available
+// If clearRate > percolation threshold: ~100% (paths exist without shrouds)
+// Otherwise: need shrouds. If we don't have enough, floor fails.
+function floorCompletionProb(clearRate: number, shroudsAvailable: number): number {
+  if (clearRate >= PERCOLATION_THRESHOLD) return 1.0;
+  const needed = expectedShroudsForFloor(clearRate);
+  if (shroudsAvailable >= needed * 1.5) return 0.95; // comfortable margin
+  if (shroudsAvailable >= needed) return 0.75;
+  if (shroudsAvailable >= needed * 0.7) return 0.40;
+  if (shroudsAvailable >= needed * 0.4) return 0.15;
+  return 0.0;
+}
+
+// =============================================================================
+// Time model per floor
+// =============================================================================
+const SKILL_ROOM_TIME_S = 10;
+const FLOOR_TRANSITION_TIME_S = 5;
+
+// Time for a failed combat room (you attempt it, can't kill within 120s)
+
+function rushTimeForFloor(floorNum: number, clearRate: number): number {
+  const rushRooms = RUSH_TORCH_EVENTS[floorNum] ?? 14;
+  const floorDef = FLOORS.find(([f]) => f === floorNum);
+  if (!floorDef) return 0;
+  const [, fmin, fmax] = floorDef;
+  const midLevel = (fmin + fmax) / 2;
+
+  const avgCombatTime = getAvgCombatTime(midLevel);
+
+  // On the rush path: ~50% skill rooms, ~50% combat rooms
+  // BUT some rooms may be blocked (unclearable). Blocked rooms cost time too
+  // (you discover they're blocked by attempting them, or you use a shroud).
+  // Shrouded rooms are "free" (instant bypass), but there's decision overhead.
+  const clearableRoomTime = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
+
+  // For rooms we CAN clear: clearRate fraction of rooms are clearable
+  // For blocked rooms on the path: we either shroud (fast) or reroute (costs extra rooms)
+  // On average the rush path involves rushRooms clearable rooms + some wasted attempts
+  const blockedFrac = 1 - clearRate;
+
+  // If clearRate >= percolation: almost all rooms on rush path are clearable
+  // (we can route around blocked ones). A few extra rooms for rerouting.
+  // If clearRate < percolation: we're using shrouds, which are instant.
+  let effectiveRooms: number;
+  if (clearRate >= PERCOLATION_THRESHOLD) {
+    // Good path exists, but may need minor detours around blocked rooms
+    const detourPenalty = 1 + blockedFrac * 0.3; // ~30% extra rooms for routing
+    effectiveRooms = rushRooms * detourPenalty;
+  } else {
+    // Using shrouds — shrouded rooms are instant, remaining rooms are cleared normally
+    effectiveRooms = rushRooms; // shrouds handle the blocked ones
+  }
+
+  return effectiveRooms * clearableRoomTime + FLOOR_TRANSITION_TIME_S;
+}
+
+// =============================================================================
+// Per-floor reward model
+// =============================================================================
+
+interface FloorEval {
   floor: number;
-  rushRooms: number;
-  rushTimeS: number;        // time just for rush path
-  exploreTimeS: number;     // additional time for exploration rooms
-  totalTimeS: number;       // rush + explore
+  clearRate: number;
+  shroudsNeeded: number;
+  completionProb: number;
+  rushTimeS: number;
   rushTorches: number;
-  exploreTorches: number;
   exitTokens: number;
   exitCombatChests: number;
   exitRefinementChests: number;
-  exploreCombatChests: number;
-  exploreSkillingChests: number;
-  exploreTokens: number;
-  clearRate: number;
+  goldFromExit: number;
 }
 
-function computeFloorData(targetFloor: number, exploreBudgetTorches: number): FloorTimeReward[] {
-  const preservation = EXPERT_TORCH_PRESERVATION;
-  const floors: FloorTimeReward[] = [];
-  
-  // Allocate exploration torches: prioritize highest floors (most value per room)
-  // First, compute rush costs
-  let totalRushTorches = 0;
-  const rushTorchesByFloor: number[] = [];
-  for (let f = 1; f <= targetFloor; f++) {
-    const rush = RUSH_TORCH_EVENTS[f] ?? 14;
-    const rushT = rush * RUSH_OVERHEAD_FACTOR * (1 - preservation);
-    rushTorchesByFloor.push(rushT);
-    totalRushTorches += rushT;
-  }
-  
-  let remainingExplore = Math.max(0, exploreBudgetTorches);
-  const exploreAllocByFloor = new Array(targetFloor).fill(0);
-  
-  // Allocate from top floor down
-  for (let f = targetFloor; f >= 1; f--) {
-    const idx = f - 1;
-    const floorResult = analysis.floorResults.find(fr => fr.floor === f);
-    const clearRate = floorResult?.overall ?? 1;
-    if (clearRate < 0.15 && f !== targetFloor) continue;
-    
-    const dim = GRID_DIM[f] ?? 8;
-    const gridRooms = dim * dim;
-    const rushRooms = RUSH_TORCH_EVENTS[f] ?? 14;
-    const available = Math.max(0, gridRooms - rushRooms);
-    const clearable = Math.floor(available * clearRate);
-    const reachable = Math.max(1, Math.floor(clearable * clearRate));
-    const torchesNeeded = reachable * (1 - preservation);
-    
-    const alloc = Math.min(torchesNeeded, remainingExplore);
-    exploreAllocByFloor[idx] = alloc;
-    remainingExplore -= alloc;
-  }
-  
-  for (let f = 1; f <= targetFloor; f++) {
-    const idx = f - 1;
-    const floorDef = FLOORS.find(([fn]) => fn === f);
-    if (!floorDef) continue;
-    const [, fmin, fmax] = floorDef;
-    const midLevel = (fmin + fmax) / 2;
-    
-    const rushRooms = RUSH_TORCH_EVENTS[f] ?? 14;
-    const rushTorches = rushTorchesByFloor[idx];
-    const exploreTorches = exploreAllocByFloor[idx];
-    
-    // Estimate time per room: mix of skill and combat
-    // Labyrinth is roughly 50/50 skill vs combat rooms
-    const avgCombatTime = avgCombatTimeAtLevel(midLevel);
-    const avgRoomTime = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
-    
-    const rushTimeS = rushRooms * avgRoomTime;
-    
-    // Exploration rooms
-    const exploreEvents = exploreTorches / (1 - preservation);
-    const exploreTimeS = exploreEvents * avgRoomTime;
-    
-    // Exit rewards
-    const exitRewards = FLOOR_EXIT_REWARDS[f] ?? [0, 0, 0];
-    const [exitTokens, exitCombatChests, exitRefinementChests] = exitRewards;
-    
-    // Exploration rewards (treasure rooms + regular rooms)
-    const dim = GRID_DIM[f] ?? 8;
-    const gridRooms = dim * dim;
-    const floorResult = analysis.floorResults.find(fr => fr.floor === f);
-    const clearRate = floorResult?.overall ?? 1;
-    
-    // Treasure rooms found during exploration
-    const treasureCount = TREASURE_ROOM_COUNT[f] ?? 6;
-    const rushRevealed = rushRooms * 2.5; // RUSH_PATH_REVEAL_FACTOR
-    const exploreRevealed = exploreEvents * 1.5;
-    const totalRevealed = Math.min(gridRooms, rushRevealed + exploreRevealed);
-    const visibleFrac = Math.min(1, totalRevealed / gridRooms);
-    const treasureFound = treasureCount * visibleFrac;
-    const treasureReached = Math.min(treasureFound, exploreEvents);
-    const regularCleared = Math.max(0, exploreEvents - treasureReached) * clearRate;
-    
-    // Treasure rooms give tokens + boxes (boxes = skilling/combat chests)
-    const treasureTokenRate = Math.min(f, 10);
-    const treasureBoxRate = Math.min(f * 0.05, 0.50);
-    const regularTokenRate = Math.min(f * 0.05, 0.50);
-    const regularBoxRate = Math.min(f * 0.01, 0.10);
-    
-    const exploreTokens = treasureReached * treasureTokenRate + regularCleared * regularTokenRate;
-    // Treasure rooms give 2x box rate
-    const exploreTotalBoxes = treasureReached * treasureBoxRate * 2 + regularCleared * regularBoxRate;
-    
-    // Exploration boxes are split between combat and skilling chests
-    // (roughly 50/50 based on room types)
-    const exploreCombatChests = exploreTotalBoxes * 0.5;
-    const exploreSkillingChests = exploreTotalBoxes * 0.5;
-    
-    floors.push({
-      floor: f,
-      rushRooms,
-      rushTimeS,
-      exploreTimeS,
-      totalTimeS: rushTimeS + exploreTimeS,
-      rushTorches,
-      exploreTorches,
-      exitTokens,
-      exitCombatChests,
-      exitRefinementChests,
-      exploreCombatChests,
-      exploreSkillingChests,
-      exploreTokens,
-      clearRate,
-    });
-  }
-  
-  return floors;
-}
+function evaluateFloor(floorNum: number, shroudsAvailable: number): FloorEval {
+  const fr = analysis.floorResults.find(f => f.floor === floorNum);
+  const clearRate = fr?.overall ?? 0;
+  const shroudsNeeded = expectedShroudsForFloor(clearRate);
+  const completionProb = floorCompletionProb(clearRate, shroudsAvailable);
 
-// =============================================================================
-// Compute income/hour for different strategies
-// =============================================================================
+  const rushRooms = RUSH_TORCH_EVENTS[floorNum] ?? 14;
+  const rushTorches = rushRooms * RUSH_OVERHEAD_FACTOR * (1 - EXPERT_TORCH_PRESERVATION);
+  const rushTimeS = rushTimeForFloor(floorNum, clearRate);
 
-interface StrategyResult {
-  targetFloor: number;
-  totalTimeMinutes: number;
-  cycleTimeHours: number;     // including cooldown
-  runsPerDay: number;
-  totalTorchesUsed: number;
-  torchBalance: number;
-  // Per-run rewards
-  combatChests: number;
-  skillingChests: number;
-  refinementChests: number;
-  tokens: number;
-  // Gold values
-  goldPerRun: number;
-  goldPerHour: number;
-  // Breakdown
-  floorDetails: FloorTimeReward[];
-}
+  const exitRewards = FLOOR_EXIT_REWARDS[floorNum] ?? [0, 0, 0];
+  const [exitTokens, exitCombatChests, exitRefinementChests] = exitRewards;
 
-function evaluateStrategy(targetFloor: number, exploreMultiplier: number = 0): StrategyResult {
-  // How many torches for rush to target floor?
-  let totalRushTorches = 0;
-  for (let f = 1; f <= targetFloor; f++) {
-    const rush = RUSH_TORCH_EVENTS[f] ?? 14;
-    totalRushTorches += rush * RUSH_OVERHEAD_FACTOR * (1 - EXPERT_TORCH_PRESERVATION);
-  }
-  
-  // Exploration budget: remaining torches after rush
-  const exploreBudget = Math.max(0, (torchCap - totalRushTorches) * exploreMultiplier);
-  
-  const floorDetails = computeFloorData(targetFloor, exploreBudget);
-  
-  const totalTorchesUsed = floorDetails.reduce((s, f) => s + f.rushTorches + f.exploreTorches, 0);
-  const torchBalance = torchCap - totalTorchesUsed;
-  
-  // Total time for the run
-  const totalTimeS = floorDetails.reduce((s, f) => s + f.totalTimeS, 0);
-  // Add transition time between floors (~5s each)
-  const transitionTime = targetFloor * 5;
-  const totalRunTimeS = totalTimeS + transitionTime;
-  const totalTimeMinutes = totalRunTimeS / 60;
-  
-  // Cycle time = run time + cooldown
-  const cycleTimeHours = totalRunTimeS / 3600 + cooldownHours;
-  const runsPerDay = 24 / cycleTimeHours;
-  
-  // Aggregate rewards
-  const combatChests = floorDetails.reduce((s, f) => s + f.exitCombatChests + f.exploreCombatChests, 0);
-  const refinementChests = floorDetails.reduce((s, f) => s + f.exitRefinementChests, 0);
-  const skillingChests = floorDetails.reduce((s, f) => s + f.exploreSkillingChests, 0);
-  const tokens = floorDetails.reduce((s, f) => s + f.exitTokens + f.exploreTokens, 0);
-  
-  const goldPerRun = 
-    combatChests * COMBAT_CHEST_VALUE +
-    skillingChests * SKILLING_CHEST_VALUE +
-    refinementChests * REFINEMENT_CHEST_VALUE;
-  
-  const goldPerHour = goldPerRun / cycleTimeHours;
-  
+  const goldFromExit =
+    exitCombatChests * COMBAT_CHEST_VALUE +
+    exitRefinementChests * REFINEMENT_CHEST_VALUE;
+
   return {
-    targetFloor,
-    totalTimeMinutes,
-    cycleTimeHours,
-    runsPerDay,
-    totalTorchesUsed,
-    torchBalance,
-    combatChests,
-    skillingChests,
-    refinementChests,
-    tokens,
-    goldPerRun,
-    goldPerHour,
-    floorDetails,
+    floor: floorNum,
+    clearRate,
+    shroudsNeeded,
+    completionProb,
+    rushTimeS,
+    rushTorches,
+    exitTokens,
+    exitCombatChests,
+    exitRefinementChests,
+    goldFromExit,
   };
 }
 
 // =============================================================================
-// Find optimal strategy
+// Strategy evaluation: given a target floor, compute expected gold/hr
+// =============================================================================
+
+interface StrategyResult {
+  targetFloor: number;
+  floorData: FloorEval[];
+  // Probability of reaching each floor
+  reachProbs: number[];
+  // Expected values (weighted by reach probability)
+  expectedTimeMinutes: number;
+  expectedTorchesUsed: number;
+  expectedCombatChests: number;
+  expectedRefinementChests: number;
+  expectedTokens: number;
+  expectedGoldPerRun: number;
+  // Cycle & rate
+  cycleTimeHours: number;
+  goldPerHour: number;
+  goldPerActiveMinute: number;
+  // Shroud tracking
+  shroudUsage: number[];
+  totalShroudsExpected: number;
+  shroudsSufficient: boolean;
+}
+
+function evaluateStrategy(targetFloor: number): StrategyResult {
+  const floorData: FloorEval[] = [];
+  const reachProbs: number[] = [];
+  const shroudUsage: number[] = [];
+
+  let shroudsRemaining = shroudCap;
+  let torchesRemaining = torchCap;
+  let cumulativeReachProb = 1.0;
+
+  let expectedTimeS = 0;
+  let expectedTorches = 0;
+  let expectedCombatChests = 0;
+  let expectedRefinementChests = 0;
+  let expectedTokens = 0;
+  let expectedGold = 0;
+  let totalShroudsExpected = 0;
+
+  for (let f = 1; f <= targetFloor; f++) {
+    const fe = evaluateFloor(f, shroudsRemaining);
+    floorData.push(fe);
+
+    // Can we even afford the torches?
+    if (torchesRemaining < fe.rushTorches) {
+      // Out of torches — can't even rush this floor
+      reachProbs.push(0);
+      shroudUsage.push(0);
+      cumulativeReachProb = 0;
+      continue;
+    }
+
+    // Probability of reaching AND completing this floor
+    const floorProb = cumulativeReachProb * fe.completionProb;
+    reachProbs.push(floorProb);
+
+    // Expected contributions from this floor
+    // The exit rewards are only earned if we complete all floors up to AND including this one
+    expectedTimeS += cumulativeReachProb * fe.rushTimeS; // we spend time even if we fail here
+    expectedTorches += cumulativeReachProb * fe.rushTorches;
+    expectedCombatChests += floorProb * fe.exitCombatChests;
+    expectedRefinementChests += floorProb * fe.exitRefinementChests;
+    expectedTokens += floorProb * fe.exitTokens;
+    expectedGold += floorProb * fe.goldFromExit;
+
+    // Shroud consumption
+    const shroudsUsedThisFloor = Math.min(fe.shroudsNeeded, shroudsRemaining);
+    shroudUsage.push(shroudsUsedThisFloor);
+    totalShroudsExpected += cumulativeReachProb * shroudsUsedThisFloor;
+    shroudsRemaining = Math.max(0, shroudsRemaining - shroudsUsedThisFloor);
+    torchesRemaining -= fe.rushTorches;
+
+    // Update cumulative reach prob
+    cumulativeReachProb = floorProb;
+  }
+
+  const expectedTimeMinutes = expectedTimeS / 60;
+  const cycleTimeHours = expectedTimeS / 3600 + cooldownHours;
+  const goldPerHour = cycleTimeHours > 0 ? expectedGold / cycleTimeHours : 0;
+  const goldPerActiveMinute = expectedTimeMinutes > 0 ? expectedGold / expectedTimeMinutes : 0;
+
+  return {
+    targetFloor,
+    floorData,
+    reachProbs,
+    expectedTimeMinutes,
+    expectedTorchesUsed: expectedTorches,
+    expectedCombatChests,
+    expectedRefinementChests,
+    expectedTokens,
+    expectedGoldPerRun: expectedGold,
+    cycleTimeHours,
+    goldPerHour,
+    goldPerActiveMinute,
+    shroudUsage,
+    totalShroudsExpected,
+    shroudsSufficient: totalShroudsExpected <= shroudCap,
+  };
+}
+
+// =============================================================================
+// Output
 // =============================================================================
 console.error("\n==========================================");
 console.error("LABYRINTH INCOME OPTIMIZATION");
 console.error("==========================================\n");
 
-console.error("Chest values used:");
+console.error("Market prices:");
 console.error(`  Combat chest:     ${(COMBAT_CHEST_VALUE / 1e6).toFixed(2)}m`);
 console.error(`  Skilling chest:   ${(SKILLING_CHEST_VALUE / 1e3).toFixed(1)}k`);
 console.error(`  Refinement chest: ${(REFINEMENT_CHEST_VALUE / 1e6).toFixed(2)}m`);
-console.error("");
 
-// Print combat kill times by floor
-console.error("Average combat kill times by floor level:");
+console.error(`\nPlayer resources (per run):`);
+console.error(`  Torches: ${torchCap}    Shrouds: ${shroudCap}    Beacons: ${beaconCap}    Cooldown: ${cooldownHours}h`);
+
+// Floor clearability summary
+console.error("\nFloor clearability:");
+for (const fr of analysis.floorResults) {
+  if (fr.floor > 15) break;
+  const status = fr.overall >= PERCOLATION_THRESHOLD ? "✓" :
+                 fr.overall >= 0.35 ? "~" : "✗";
+  const shrouds = expectedShroudsForFloor(fr.overall);
+  const shroudStr = shrouds === 0 ? "" : ` (need ~${shrouds.toFixed(0)} shrouds)`;
+  console.error(
+    `  F${String(fr.floor).padStart(2)} ${status} ` +
+    `overall=${(fr.overall * 100).toFixed(0).padStart(3)}% ` +
+    `skill=${(fr.skill * 100).toFixed(0).padStart(3)}% ` +
+    `combat=${(fr.combat * 100).toFixed(0).padStart(3)}%` +
+    shroudStr
+  );
+}
+
+// Skill bottlenecks
+console.error("\nSkill room caps (sorted by max clearable):");
+for (const s of [...analysis.skillData].sort((a, b) => a.maxClearable - b.maxClearable)) {
+  const floorCap = FLOORS.findIndex(([, , fmax]) => fmax >= s.maxClearable);
+  const floorStr = floorCap >= 0 ? `(caps at F${FLOORS[floorCap][0]})` : "";
+  console.error(`  ${s.name.padEnd(16)} maxClear=${String(s.maxClearable).padStart(3)} ${floorStr}`);
+}
+
+// Combat room summary
+console.error("\nCombat room caps:");
+for (const c of [...analysis.combatData].sort((a, b) => a.maxClearable - b.maxClearable)) {
+  console.error(`  ${c.name.padEnd(16)} maxClear=${String(c.maxClearable).padStart(3)}`);
+}
+
+// Average combat times by floor
+console.error("\nAvg combat kill time by floor:");
 for (const [floorNum, fmin, fmax] of FLOORS) {
-  const midLevel = (fmin + fmax) / 2;
-  const avgTime = avgCombatTimeAtLevel(midLevel);
-  const avgRoomTime = (SKILL_ROOM_TIME_S + avgTime) / 2;
-  console.error(`  Floor ${String(floorNum).padStart(2)}: levels ${fmin}-${fmax}, avg combat=${avgTime.toFixed(1)}s, avg room=${avgRoomTime.toFixed(1)}s`);
-  if (avgTime >= 120) break; // No point showing floors we can't clear
+  if (floorNum > 14) break;
+  const mid = (fmin + fmax) / 2;
+  const avgTime = getAvgCombatTime(mid);
+  const avgRoom = (SKILL_ROOM_TIME_S + avgTime) / 2;
+  console.error(`  F${String(floorNum).padStart(2)}: levels ${fmin}-${fmax}, combat=${avgTime.toFixed(0).padStart(3)}s, avg room=${avgRoom.toFixed(0).padStart(2)}s`);
 }
-console.error("");
-
-// Evaluate all possible target floors
-const maxTestFloor = Math.min(20, analysis.targetFloor + 2);
-const results: StrategyResult[] = [];
-
-console.error("Strategy comparison (rush-only, no exploration):");
-console.error("─".repeat(110));
-console.error(
-  "Floor".padStart(5) + " │ " +
-  "RunTime".padStart(8) + " │ " +
-  "Cycle".padStart(6) + " │ " +
-  "Runs/d".padStart(6) + " │ " +
-  "Torches".padStart(7) + " │ " +
-  "Combat".padStart(7) + " │ " +
-  "Refine".padStart(7) + " │ " +
-  "Tokens".padStart(7) + " │ " +
-  "Gold/Run".padStart(10) + " │ " +
-  "Gold/Hour".padStart(12) + " │ " +
-  "Balance".padStart(7)
-);
-console.error("─".repeat(110));
-
-for (let targetFloor = 1; targetFloor <= maxTestFloor; targetFloor++) {
-  const strat = evaluateStrategy(targetFloor, 0); // rush only
-  results.push(strat);
-  
-  const timeFmt = `${strat.totalTimeMinutes.toFixed(1)}m`;
-  const cycleFmt = `${strat.cycleTimeHours.toFixed(1)}h`;
-  
-  console.error(
-    `F${String(targetFloor).padStart(3)} │ ` +
-    `${timeFmt.padStart(8)} │ ` +
-    `${cycleFmt.padStart(6)} │ ` +
-    `${strat.runsPerDay.toFixed(2).padStart(6)} │ ` +
-    `${strat.totalTorchesUsed.toFixed(0).padStart(7)} │ ` +
-    `${strat.combatChests.toFixed(1).padStart(7)} │ ` +
-    `${strat.refinementChests.toFixed(1).padStart(7)} │ ` +
-    `${strat.tokens.toFixed(0).padStart(7)} │ ` +
-    `${(strat.goldPerRun / 1e6).toFixed(2).padStart(9)}m │ ` +
-    `${(strat.goldPerHour / 1e6).toFixed(2).padStart(11)}m │ ` +
-    `${strat.torchBalance.toFixed(0).padStart(7)}`
-  );
-}
-
-// Find best rush-only
-const bestRushOnly = results.reduce((a, b) => a.goldPerHour > b.goldPerHour ? a : b);
-console.error(`\n★ Best rush-only: Floor ${bestRushOnly.targetFloor} → ${(bestRushOnly.goldPerHour / 1e6).toFixed(2)}m gold/hr`);
-
-// Now evaluate with exploration for the top floors
-console.error("\n\nStrategy comparison WITH exploration (using surplus torches):");
-console.error("─".repeat(110));
-console.error(
-  "Floor".padStart(5) + " │ " +
-  "RunTime".padStart(8) + " │ " +
-  "Cycle".padStart(6) + " │ " +
-  "Runs/d".padStart(6) + " │ " +
-  "Torches".padStart(7) + " │ " +
-  "Combat".padStart(7) + " │ " +
-  "Refine".padStart(7) + " │ " +
-  "Skill".padStart(7) + " │ " +
-  "Tokens".padStart(7) + " │ " +
-  "Gold/Run".padStart(10) + " │ " +
-  "Gold/Hour".padStart(12)
-);
-console.error("─".repeat(110));
-
-const exploreResults: StrategyResult[] = [];
-for (let targetFloor = Math.max(1, bestRushOnly.targetFloor - 3); targetFloor <= maxTestFloor; targetFloor++) {
-  const strat = evaluateStrategy(targetFloor, 1.0); // full exploration
-  exploreResults.push(strat);
-  
-  console.error(
-    `F${String(targetFloor).padStart(3)} │ ` +
-    `${(strat.totalTimeMinutes.toFixed(1) + "m").padStart(8)} │ ` +
-    `${(strat.cycleTimeHours.toFixed(1) + "h").padStart(6)} │ ` +
-    `${strat.runsPerDay.toFixed(2).padStart(6)} │ ` +
-    `${strat.totalTorchesUsed.toFixed(0).padStart(7)} │ ` +
-    `${strat.combatChests.toFixed(1).padStart(7)} │ ` +
-    `${strat.refinementChests.toFixed(1).padStart(7)} │ ` +
-    `${strat.skillingChests.toFixed(1).padStart(7)} │ ` +
-    `${strat.tokens.toFixed(0).padStart(7)} │ ` +
-    `${(strat.goldPerRun / 1e6).toFixed(2).padStart(9)}m │ ` +
-    `${(strat.goldPerHour / 1e6).toFixed(2).padStart(11)}m`
-  );
-}
-
-const bestExplore = exploreResults.reduce((a, b) => a.goldPerHour > b.goldPerHour ? a : b);
-console.error(`\n★ Best with exploration: Floor ${bestExplore.targetFloor} → ${(bestExplore.goldPerHour / 1e6).toFixed(2)}m gold/hr`);
 
 // =============================================================================
-// Detailed breakdown of the best strategy
-// =============================================================================
-const best = bestExplore.goldPerHour > bestRushOnly.goldPerHour ? bestExplore : bestRushOnly;
-const isExplore = best === bestExplore;
-
-console.error("\n==========================================");
-console.error(`RECOMMENDED: Floor ${best.targetFloor} (${isExplore ? "with exploration" : "rush only"})`);
-console.error("==========================================");
-console.error("");
-console.error("Per-floor breakdown:");
-console.error("─".repeat(100));
-console.error(
-  "Floor".padStart(5) + " │ " +
-  "Rooms".padStart(5) + " │ " +
-  "RushTime".padStart(8) + " │ " +
-  "ExplTime".padStart(8) + " │ " +
-  "Total".padStart(7) + " │ " +
-  "Torches".padStart(7) + " │ " +
-  "CombatC".padStart(7) + " │ " +
-  "RefineC".padStart(7) + " │ " +
-  "Tokens".padStart(7) + " │ " +
-  "GoldVal".padStart(10)
-);
-console.error("─".repeat(100));
-
-for (const fd of best.floorDetails) {
-  const floorGold = 
-    (fd.exitCombatChests + fd.exploreCombatChests) * COMBAT_CHEST_VALUE +
-    fd.exitRefinementChests * REFINEMENT_CHEST_VALUE +
-    fd.exploreSkillingChests * SKILLING_CHEST_VALUE;
-  
-  console.error(
-    `F${String(fd.floor).padStart(3)} │ ` +
-    `${String(fd.rushRooms).padStart(5)} │ ` +
-    `${(fd.rushTimeS.toFixed(0) + "s").padStart(8)} │ ` +
-    `${(fd.exploreTimeS.toFixed(0) + "s").padStart(8)} │ ` +
-    `${(fd.totalTimeS.toFixed(0) + "s").padStart(7)} │ ` +
-    `${(fd.rushTorches + fd.exploreTorches).toFixed(1).padStart(7)} │ ` +
-    `${(fd.exitCombatChests + fd.exploreCombatChests).toFixed(1).padStart(7)} │ ` +
-    `${fd.exitRefinementChests.toFixed(1).padStart(7)} │ ` +
-    `${(fd.exitTokens + fd.exploreTokens).toFixed(0).padStart(7)} │ ` +
-    `${(floorGold / 1e6).toFixed(2).padStart(9)}m`
-  );
-}
-
-console.error("─".repeat(100));
-console.error("");
-console.error("Summary:");
-console.error(`  Run time:          ${best.totalTimeMinutes.toFixed(1)} minutes`);
-console.error(`  Cooldown:          ${cooldownHours} hours`);
-console.error(`  Cycle time:        ${best.cycleTimeHours.toFixed(1)} hours`);
-console.error(`  Runs per day:      ${best.runsPerDay.toFixed(2)}`);
-console.error(`  Torches used:      ${best.totalTorchesUsed.toFixed(0)} / ${torchCap}`);
-console.error(`  Torch balance:     ${best.torchBalance.toFixed(0)}`);
-console.error("");
-console.error(`  Combat chests:     ${best.combatChests.toFixed(1)} × ${(COMBAT_CHEST_VALUE/1e6).toFixed(2)}m = ${(best.combatChests * COMBAT_CHEST_VALUE / 1e6).toFixed(2)}m`);
-console.error(`  Refinement chests: ${best.refinementChests.toFixed(1)} × ${(REFINEMENT_CHEST_VALUE/1e6).toFixed(2)}m = ${(best.refinementChests * REFINEMENT_CHEST_VALUE / 1e6).toFixed(2)}m`);
-console.error(`  Skilling chests:   ${best.skillingChests.toFixed(1)} × ${(SKILLING_CHEST_VALUE/1e3).toFixed(1)}k = ${(best.skillingChests * SKILLING_CHEST_VALUE / 1e6).toFixed(2)}m`);
-console.error(`  Tokens earned:     ${best.tokens.toFixed(0)}`);
-console.error("");
-console.error(`  Gold per run:      ${(best.goldPerRun / 1e6).toFixed(2)}m`);
-console.error(`  Gold per hour:     ${(best.goldPerHour / 1e6).toFixed(2)}m`);
-console.error(`  Gold per day:      ${(best.goldPerHour * 24 / 1e6).toFixed(2)}m`);
-
-// =============================================================================
-// Sensitivity: What if you rush to a lower floor faster?
+// Strategy comparison
 // =============================================================================
 console.error("\n==========================================");
-console.error("TIME EFFICIENCY ANALYSIS");
+console.error("STRATEGY COMPARISON");
 console.error("==========================================\n");
 
-console.error("Gold earned per minute of active play time (excluding cooldown):");
-for (let f = Math.max(1, bestRushOnly.targetFloor - 5); f <= maxTestFloor; f++) {
-  const rushStrat = evaluateStrategy(f, 0);
-  const explStrat = evaluateStrategy(f, 1.0);
-  const rushGoldPerMin = rushStrat.goldPerRun / rushStrat.totalTimeMinutes;
-  const explGoldPerMin = explStrat.goldPerRun / explStrat.totalTimeMinutes;
+console.error(
+  "Target".padStart(6) + " │ " +
+  "Reach%".padStart(6) + " │ " +
+  "E[Time]".padStart(8) + " │ " +
+  "Shrouds".padStart(7) + " │ " +
+  "E[Combat]".padStart(9) + " │ " +
+  "E[Refine]".padStart(9) + " │ " +
+  "E[Tokens]".padStart(9) + " │ " +
+  "E[Gold/run]".padStart(11) + " │ " +
+  "Gold/hr".padStart(9) + " │ " +
+  "Gold/day".padStart(10)
+);
+console.error("─".repeat(105));
+
+let bestStrategy: StrategyResult | null = null;
+
+for (let targetFloor = 5; targetFloor <= 15; targetFloor++) {
+  const strat = evaluateStrategy(targetFloor);
+  const lastReachProb = strat.reachProbs[strat.reachProbs.length - 1] ?? 0;
+
+  if (!bestStrategy || strat.goldPerHour > bestStrategy.goldPerHour) {
+    bestStrategy = strat;
+  }
+
+  const marker = strat === bestStrategy ? " ★" : "";
+
   console.error(
-    `  F${String(f).padStart(2)}: Rush=${(rushGoldPerMin / 1e6).toFixed(3)}m/min (${rushStrat.totalTimeMinutes.toFixed(1)}min), ` +
-    `Explore=${(explGoldPerMin / 1e6).toFixed(3)}m/min (${explStrat.totalTimeMinutes.toFixed(1)}min)`
+    `F${String(targetFloor).padStart(4)} │ ` +
+    `${(lastReachProb * 100).toFixed(0).padStart(5)}% │ ` +
+    `${(strat.expectedTimeMinutes.toFixed(1) + "m").padStart(8)} │ ` +
+    `${strat.totalShroudsExpected.toFixed(1).padStart(4)}/${shroudCap} │ ` +
+    `${strat.expectedCombatChests.toFixed(1).padStart(9)} │ ` +
+    `${strat.expectedRefinementChests.toFixed(1).padStart(9)} │ ` +
+    `${strat.expectedTokens.toFixed(0).padStart(9)} │ ` +
+    `${(strat.expectedGoldPerRun / 1e6).toFixed(2).padStart(9)}m │ ` +
+    `${(strat.goldPerHour / 1e6).toFixed(2).padStart(7)}m │ ` +
+    `${(strat.goldPerHour * 24 / 1e6).toFixed(1).padStart(8)}m` +
+    marker
   );
+}
+
+// =============================================================================
+// Detailed breakdown of best strategy
+// =============================================================================
+if (bestStrategy) {
+  const best = bestStrategy;
+  console.error(`\n==========================================`);
+  console.error(`RECOMMENDED: Target Floor ${best.targetFloor}`);
+  console.error(`==========================================\n`);
+
+  console.error("Per-floor detail:");
+  console.error(
+    "Floor".padStart(5) + " │ " +
+    "Clear%".padStart(6) + " │ " +
+    "Reach%".padStart(6) + " │ " +
+    "Shrouds".padStart(7) + " │ " +
+    "Time".padStart(6) + " │ " +
+    "Torches".padStart(7) + " │ " +
+    "Combat".padStart(6) + " │ " +
+    "Refine".padStart(6) + " │ " +
+    "Tokens".padStart(6) + " │ " +
+    "E[Gold]".padStart(9)
+  );
+  console.error("─".repeat(85));
+
+  for (let i = 0; i < best.floorData.length; i++) {
+    const fd = best.floorData[i];
+    const reachP = best.reachProbs[i] ?? 0;
+    const expGold = reachP * fd.goldFromExit;
+
+    console.error(
+      `F${String(fd.floor).padStart(3)} │ ` +
+      `${(fd.clearRate * 100).toFixed(0).padStart(5)}% │ ` +
+      `${(reachP * 100).toFixed(0).padStart(5)}% │ ` +
+      `${fd.shroudsNeeded.toFixed(1).padStart(4)}/${best.shroudUsage[i]?.toFixed(1) ?? "0"} │ ` +
+      `${(fd.rushTimeS.toFixed(0) + "s").padStart(6)} │ ` +
+      `${fd.rushTorches.toFixed(1).padStart(7)} │ ` +
+      `${fd.exitCombatChests.toFixed(1).padStart(6)} │ ` +
+      `${fd.exitRefinementChests.toFixed(1).padStart(6)} │ ` +
+      `${fd.exitTokens.toFixed(0).padStart(6)} │ ` +
+      `${(expGold / 1e6).toFixed(2).padStart(8)}m`
+    );
+  }
+
+  console.error("─".repeat(85));
+  console.error(`\nSummary:`);
+  console.error(`  Expected run time:     ${best.expectedTimeMinutes.toFixed(1)} minutes`);
+  console.error(`  Cooldown:              ${cooldownHours} hours`);
+  console.error(`  Cycle time:            ${best.cycleTimeHours.toFixed(1)} hours`);
+  console.error(`  Runs per day:          ${(24 / best.cycleTimeHours).toFixed(2)}`);
+  console.error(`  Torches used:          ${best.expectedTorchesUsed.toFixed(0)} / ${torchCap}`);
+  console.error(`  Shrouds used:          ${best.totalShroudsExpected.toFixed(1)} / ${shroudCap}`);
+  console.error(``);
+  console.error(`  E[Combat chests]:      ${best.expectedCombatChests.toFixed(1)} → ${(best.expectedCombatChests * COMBAT_CHEST_VALUE / 1e6).toFixed(2)}m`);
+  console.error(`  E[Refinement chests]:  ${best.expectedRefinementChests.toFixed(1)} → ${(best.expectedRefinementChests * REFINEMENT_CHEST_VALUE / 1e6).toFixed(2)}m`);
+  console.error(`  E[Tokens]:             ${best.expectedTokens.toFixed(0)}`);
+  console.error(``);
+  console.error(`  Expected gold/run:     ${(best.expectedGoldPerRun / 1e6).toFixed(2)}m`);
+  console.error(`  Gold per hour:         ${(best.goldPerHour / 1e6).toFixed(2)}m`);
+  console.error(`  Gold per day:          ${(best.goldPerHour * 24 / 1e6).toFixed(1)}m`);
+  console.error(`  Gold per active min:   ${(best.goldPerActiveMinute / 1e6).toFixed(3)}m`);
+
+  // =============================================================================
+  // Exploration analysis: what to do with surplus torches
+  // =============================================================================
+  const surplusTorches = torchCap - best.expectedTorchesUsed;
+  if (surplusTorches > 10) {
+    console.error(`\n==========================================`);
+    console.error(`EXPLORATION WITH ${Math.round(surplusTorches)} SURPLUS TORCHES`);
+    console.error(`==========================================\n`);
+
+    const preservation = EXPERT_TORCH_PRESERVATION;
+
+    interface ExploreFloorValue {
+      floor: number;
+      clearRate: number;
+      roomsExplorable: number;
+      torchesNeeded: number;
+      tokensPerTorch: number;
+      boxesPerTorch: number;
+      goldPerTorch: number;
+      timePerRoom: number;
+    }
+
+    const exploreValues: ExploreFloorValue[] = [];
+
+    for (let f = 1; f <= best.targetFloor; f++) {
+      const fr = analysis.floorResults.find(r => r.floor === f);
+      const clearRate = fr?.overall ?? 0;
+      if (clearRate < 0.30) continue;
+
+      const floorDef = FLOORS.find(([fn]) => fn === f);
+      if (!floorDef) continue;
+      const [, fmin, fmax] = floorDef;
+      const midLevel = (fmin + fmax) / 2;
+
+      const dim = GRID_DIM[f] ?? 8;
+      const gridRooms = dim * dim;
+      const rushRooms = RUSH_TORCH_EVENTS[f] ?? 14;
+      const available = Math.max(0, gridRooms - rushRooms);
+      const clearable = Math.floor(available * clearRate);
+      const reachable = Math.max(1, Math.floor(clearable * clearRate));
+
+      const treasureCount = TREASURE_ROOM_COUNT[f] ?? 6;
+      const treasureTokenReward = Math.min(f, 10);
+      const treasureBoxRate = Math.min(f * 0.05, 0.50);
+      const regularTokenRate = Math.min(f * 0.05, 0.50);
+      const regularBoxRate = Math.min(f * 0.01, 0.10);
+
+      const treasureFrac = Math.min(1, treasureCount / Math.max(1, reachable));
+      const tokensPerRoom = treasureFrac * treasureTokenReward + (1 - treasureFrac) * regularTokenRate * clearRate;
+      const boxesPerRoom = treasureFrac * treasureBoxRate * 2 + (1 - treasureFrac) * regularBoxRate * clearRate;
+
+      const torchesPerRoom = 1 - preservation;
+      const torchesForFull = reachable * torchesPerRoom;
+
+      const tokensPerTorch = tokensPerRoom / torchesPerRoom;
+      const boxesPerTorch = boxesPerRoom / torchesPerRoom;
+
+      const goldPerBox = (COMBAT_CHEST_VALUE + SKILLING_CHEST_VALUE) / 2;
+      const goldPerTorch = boxesPerTorch * goldPerBox;
+
+      const avgCombatTime = getAvgCombatTime(midLevel);
+      const timePerRoom = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
+
+      exploreValues.push({
+        floor: f, clearRate, roomsExplorable: reachable,
+        torchesNeeded: torchesForFull, tokensPerTorch, boxesPerTorch,
+        goldPerTorch, timePerRoom,
+      });
+    }
+
+    exploreValues.sort((a, b) => b.goldPerTorch - a.goldPerTorch);
+
+    console.error("Floor exploration value (sorted by gold/torch):");
+    console.error(
+      "Floor".padStart(5) + " │ " +
+      "Clear%".padStart(6) + " │ " +
+      "Rooms".padStart(5) + " │ " +
+      "Torches".padStart(7) + " │ " +
+      "Tok/T".padStart(6) + " │ " +
+      "Box/T".padStart(6) + " │ " +
+      "Gold/T".padStart(8) + " │ " +
+      "Time/room".padStart(9)
+    );
+    console.error("─".repeat(70));
+
+    for (const ev of exploreValues) {
+      console.error(
+        `F${String(ev.floor).padStart(3)} │ ` +
+        `${(ev.clearRate * 100).toFixed(0).padStart(5)}% │ ` +
+        `${String(ev.roomsExplorable).padStart(5)} │ ` +
+        `${ev.torchesNeeded.toFixed(0).padStart(7)} │ ` +
+        `${ev.tokensPerTorch.toFixed(2).padStart(6)} │ ` +
+        `${ev.boxesPerTorch.toFixed(3).padStart(6)} │ ` +
+        `${(ev.goldPerTorch / 1e3).toFixed(0).padStart(6)}k │ ` +
+        `${(ev.timePerRoom.toFixed(0) + "s").padStart(9)}`
+      );
+    }
+
+    console.error(`\nGreedy torch allocation (${Math.round(surplusTorches)} surplus):`);
+    let remaining = surplusTorches;
+    let totalExploreGold = 0;
+    let totalExploreTime = 0;
+    let totalExploreTokens = 0;
+    let totalExploreBoxes = 0;
+
+    for (const ev of exploreValues) {
+      if (remaining <= 0) break;
+      const alloc = Math.min(remaining, ev.torchesNeeded);
+      const rooms = alloc / (1 - preservation);
+      const gold = alloc * ev.goldPerTorch;
+      const tokens = alloc * ev.tokensPerTorch;
+      const boxes = alloc * ev.boxesPerTorch;
+      const time = rooms * ev.timePerRoom;
+
+      totalExploreGold += gold;
+      totalExploreTime += time;
+      totalExploreTokens += tokens;
+      totalExploreBoxes += boxes;
+      remaining -= alloc;
+
+      console.error(
+        `  F${String(ev.floor).padStart(2)}: ${alloc.toFixed(0)} torches → ` +
+        `${rooms.toFixed(0)} rooms, ${(time / 60).toFixed(1)}min, ` +
+        `${boxes.toFixed(1)} boxes, ${tokens.toFixed(0)} tokens, ` +
+        `${(gold / 1e6).toFixed(2)}m gold`
+      );
+    }
+
+    const totalGoldWithExplore = best.expectedGoldPerRun + totalExploreGold;
+    const totalTimeWithExplore = best.expectedTimeMinutes + totalExploreTime / 60;
+    const cycleWithExplore = totalTimeWithExplore / 60 + cooldownHours;
+    const gphWithExplore = totalGoldWithExplore / cycleWithExplore;
+
+    console.error(`\nWith exploration:`);
+    console.error(`  Extra gold/run:      +${(totalExploreGold / 1e6).toFixed(2)}m (${totalExploreBoxes.toFixed(1)} boxes, ${totalExploreTokens.toFixed(0)} tokens)`);
+    console.error(`  Extra time:          +${(totalExploreTime / 60).toFixed(1)} minutes`);
+    console.error(`  Total gold/run:      ${(totalGoldWithExplore / 1e6).toFixed(2)}m`);
+    console.error(`  Total run time:      ${totalTimeWithExplore.toFixed(1)} minutes`);
+    console.error(`  Gold per hour:       ${(gphWithExplore / 1e6).toFixed(2)}m (was ${(best.goldPerHour / 1e6).toFixed(2)}m)`);
+    console.error(`  Gold per day:        ${(gphWithExplore * 24 / 1e6).toFixed(1)}m (was ${(best.goldPerHour * 24 / 1e6).toFixed(1)}m)`);
+  }
+
+  // =============================================================================
+  // What's limiting you?
+  // =============================================================================
+  console.error(`\n==========================================`);
+  console.error(`WHAT'S LIMITING YOU`);
+  console.error(`==========================================\n`);
+
+  if (analysis.bottleneck) {
+    const bn = analysis.bottleneck;
+    console.error(`Frontier floor: F${bn.frontierFloor} (overall ${(bn.frontierOverall * 100).toFixed(0)}%)`);
+    console.error(`Bottleneck category: ${bn.bottleneckCategory.toUpperCase()}`);
+    console.error(`  Skill avg: ${(bn.skillAvg * 100).toFixed(0)}%, Combat avg: ${(bn.combatAvg * 100).toFixed(0)}%`);
+    console.error(`\nWeakest rooms on frontier floor:`);
+    for (const wr of bn.weakRooms) {
+      console.error(`  ${wr.name.padEnd(16)} maxClear=${String(wr.maxClearable).padStart(3)}, clearable=${(wr.frac * 100).toFixed(0)}%, need +${wr.gapNeeded} levels`);
+    }
+  }
+
+  // Impact of each skill improvement
+  console.error(`\nSkills holding you back (maxClearable < Floor ${best.targetFloor} max level ${FLOORS[best.targetFloor - 1]?.[2] ?? "?"}):`);
+  const targetMax = FLOORS[best.targetFloor - 1]?.[2] ?? 200;
+  for (const s of [...analysis.skillData].sort((a, b) => a.maxClearable - b.maxClearable)) {
+    if (s.maxClearable < targetMax) {
+      const deficit = targetMax - s.maxClearable;
+      console.error(`  ${s.name.padEnd(16)} maxClear=${s.maxClearable}, need +${deficit} (base lv ${s.base})`);
+    }
+  }
+
+  // =============================================================================
+  // Sensitivity: with seals
+  // =============================================================================
+  console.error(`\n==========================================`);
+  console.error(`WITH SKILLING SEALS (what-if)`);
+  console.error(`==========================================\n`);
+
+  const sealAnalysis = generateAnalysis(rawCharData, null, gameData, true);
+  console.error(`Max floor with seals (no shrouds): ${sealAnalysis.maxFloorNoShrouds}`);
+  console.error("\nSkill room caps with seals:");
+  for (const s of [...sealAnalysis.skillData].sort((a, b) => a.maxClearable - b.maxClearable)) {
+    const orig = analysis.skillData.find(o => o.name === s.name);
+    const gain = orig ? s.maxClearable - orig.maxClearable : 0;
+    console.error(`  ${s.name.padEnd(16)} maxClear=${String(s.maxClearable).padStart(3)} (+${gain})`);
+  }
+
+  // Quick strategy eval with seals
+  console.error("\nWith seals, floor clearability:");
+  for (const fr of sealAnalysis.floorResults) {
+    if (fr.floor > 15) break;
+    const origFr = analysis.floorResults.find(o => o.floor === fr.floor);
+    const delta = origFr ? fr.overall - origFr.overall : 0;
+    const status = fr.overall >= PERCOLATION_THRESHOLD ? "✓" :
+                   fr.overall >= 0.35 ? "~" : "✗";
+    console.error(
+      `  F${String(fr.floor).padStart(2)} ${status} ` +
+      `overall=${(fr.overall * 100).toFixed(0).padStart(3)}% ` +
+      `(${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(0)}%)`
+    );
+  }
 }
