@@ -1,8 +1,21 @@
 #!/usr/bin/env tsx
+/**
+ * Labyrinth Income Optimizer
+ *
+ * Calculates optimal floor target to maximize gold/hour for a given character.
+ * Factors in: floor clearability (skill + combat), shroud consumption, torch
+ * budget, exploration value, cooldown time, and per-floor kill times from the
+ * deterministic combat simulator.
+ *
+ * Usage: npx tsx scripts/labyrinth_income.ts [character_data.json]
+ *
+ * Default: loads live_data/gragatrim_full_char_data.json
+ * Outputs: Per-floor analysis with gold/hour calculations and optimal strategy
+ *          recommendation, including surplus torch exploration allocation.
+ */
 // =============================================================================
 // Labyrinth Income Optimizer — properly models floor clearability + shroud usage
 // =============================================================================
-// Usage: npx tsx scripts/labyrinth_income.ts live_data/gragatrim_full_char_data.json
 
 import { readFileSync } from "fs";
 

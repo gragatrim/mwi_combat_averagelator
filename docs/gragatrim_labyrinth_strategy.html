@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gragatrim — Labyrinth Income Strategy</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e0e0e8;
+      --muted: #8888a0;
+      --accent: #6c9bff;
+      --green: #4cdd7b;
+      --red: #f05060;
+      --yellow: #f0c040;
+      --orange: #e08840;
+      --gold: #ffd700;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    h1 { color: var(--gold); font-size: 1.8rem; margin-bottom: 0.25rem; }
+    h2 { color: var(--accent); font-size: 1.3rem; margin: 2rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+    h3 { color: var(--text); font-size: 1.05rem; margin: 1.2rem 0 0.5rem; }
+    .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .card.highlight {
+      border-color: var(--gold);
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.08);
+    }
+    .card.warning {
+      border-color: var(--red);
+      background: #1a1520;
+    }
+    .recommendation {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--gold);
+      margin-bottom: 0.5rem;
+    }
+    .big-number {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--green);
+      display: inline-block;
+    }
+    .big-label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: block;
+    }
+    .stats-row {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      margin: 1rem 0;
+    }
+    .stat-block { text-align: center; min-width: 120px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 0.5rem 0;
+    }
+    th {
+      background: #22253a;
+      color: var(--accent);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tr:hover td { background: rgba(108, 155, 255, 0.04); }
+    tr.optimal td { background: rgba(76, 221, 123, 0.08); font-weight: 600; }
+    tr.unreachable td { color: var(--muted); opacity: 0.6; }
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge.star { background: rgba(255, 215, 0, 0.15); color: var(--gold); }
+    .badge.fail { background: rgba(240, 80, 96, 0.15); color: var(--red); }
+    .badge.ok { background: rgba(76, 221, 123, 0.15); color: var(--green); }
+    .badge.warn { background: rgba(240, 192, 64, 0.15); color: var(--yellow); }
+    .bar-bg {
+      background: #22253a;
+      border-radius: 4px;
+      height: 18px;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+    .bar-label {
+      position: absolute;
+      right: 6px;
+      top: 0;
+      line-height: 18px;
+      font-size: 0.72rem;
+      color: var(--text);
+      font-weight: 600;
+    }
+    .green-fill { background: var(--green); }
+    .yellow-fill { background: var(--yellow); }
+    .red-fill { background: var(--red); }
+    .orange-fill { background: var(--orange); }
+    .info-box {
+      background: rgba(108, 155, 255, 0.06);
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 0.9rem;
+    }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+    .vs-block { text-align: center; padding: 1rem; }
+    .vs-block .big-number { font-size: 1.6rem; }
+    .vs-divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--muted);
+    }
+    .torch-alloc { display: flex; gap: 4px; align-items: center; margin: 0.25rem 0; font-size: 0.85rem; }
+    .torch-alloc .floor-label { width: 30px; color: var(--muted); text-align: right; }
+    .torch-alloc .torch-bar { flex: 1; height: 22px; position: relative; }
+    .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+
+<h1>🏛️ Labyrinth Income Strategy</h1>
+<p class="subtitle">gragatrim &mdash; generated 2026-04-05 &mdash; chest prices: combat 1.30m · skilling 61.7k · refinement 2.21m</p>
+
+<!-- ===== EXECUTIVE SUMMARY ===== -->
+<div class="card highlight">
+  <div class="recommendation">⭐ Target Floor 11 — Rush + Explore surplus torches on F5–F11</div>
+  <div class="stats-row">
+    <div class="stat-block">
+      <span class="big-number">76.3m</span>
+      <span class="big-label">Gold per run</span>
+    </div>
+    <div class="stat-block">
+      <span class="big-number">1.30m</span>
+      <span class="big-label">Gold per hour</span>
+    </div>
+    <div class="stat-block">
+      <span class="big-number">31.2m</span>
+      <span class="big-label">Gold per day</span>
+    </div>
+    <div class="stat-block">
+      <span class="big-number" style="color:var(--yellow)">~2.7h</span>
+      <span class="big-label">Active play time</span>
+    </div>
+  </div>
+  <p style="color:var(--muted);font-size:0.88rem;margin-top:0.5rem;">
+    Rush floors 1→11 (~65 min), then explore clearable floors with 151 surplus torches (~99 min).
+    56-hour cooldown between runs means ~1 run every 2.4 days.
+  </p>
+</div>
+
+<!-- ===== THE KEY QUESTION ===== -->
+<h2>Your Question: Is Pushing to F15 Worth It?</h2>
+
+<div class="two-col">
+  <div class="card">
+    <div class="vs-block">
+      <div style="color:var(--muted);font-size:0.85rem;">Quick run: Floor 8</div>
+      <div class="big-number" style="color:var(--orange)">19.7m</div>
+      <div class="big-label">gold/run · 31 min · 0.35m/hr</div>
+      <div style="margin-top:0.5rem;font-size:0.85rem;">100% reliable, no shrouds needed<br>But wastes 200+ torches &amp; tons of cooldown time</div>
+    </div>
+  </div>
+  <div class="card highlight">
+    <div class="vs-block">
+      <div style="color:var(--muted);font-size:0.85rem;">⭐ Optimal: Floor 11 + Explore</div>
+      <div class="big-number">76.3m</div>
+      <div class="big-label">gold/run · 164 min · 1.30m/hr</div>
+      <div style="margin-top:0.5rem;font-size:0.85rem;">Uses all 260 torches, 10 of 12 shrouds<br><strong>3.7× more gold</strong> than F8 for 5× the time</div>
+    </div>
+  </div>
+</div>
+
+<div class="card warning">
+  <div style="display:flex;align-items:center;gap:0.75rem;">
+    <span style="font-size:1.5rem;">❌</span>
+    <div>
+      <strong style="color:var(--red);">Floor 15 is UNREACHABLE</strong>
+      <p style="font-size:0.88rem;color:var(--muted);margin-top:0.25rem;">
+        Floor 15 requires clearing rooms at levels 300–320. Your skills cap at 163–222.
+        At F13+ your skill clearability is <strong>0%</strong> — no amount of shrouds (you have 12) can compensate
+        when literally zero skill rooms are clearable. You would need +74–157 skill levels across 6 skills.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== WHY LONGER RUNS WIN ===== -->
+<h2>Why Longer Runs Beat Shorter Runs</h2>
+
+<div class="info-box">
+  <strong>The Cooldown Tax:</strong> gold/hour = gold_per_run ÷ (run_time + 56h cooldown).<br>
+  Your 56-hour cooldown is a <em>fixed cost</em> every run. Whether you play 30 minutes or 3 hours,
+  you still wait 56 hours before the next run. This means <strong>every extra minute of play
+  only adds ~0.03% to cycle time</strong> but can add significant gold.
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>Run Time</th>
+      <th>Cycle Time</th>
+      <th>Gold/Run</th>
+      <th>Gold/Hour</th>
+      <th>vs F8 Baseline</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>F8 rush only</td>
+      <td>31 min</td>
+      <td>56.5h</td>
+      <td>19.70m</td>
+      <td>0.35m</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>F9 rush only</td>
+      <td>42 min</td>
+      <td>56.7h</td>
+      <td>29.12m</td>
+      <td>0.51m</td>
+      <td>+48%</td>
+    </tr>
+    <tr>
+      <td>F11 rush only</td>
+      <td>65 min</td>
+      <td>57.1h</td>
+      <td>48.96m</td>
+      <td>0.86m</td>
+      <td>+149%</td>
+    </tr>
+    <tr class="optimal">
+      <td>⭐ F11 + explore</td>
+      <td>164 min</td>
+      <td>58.7h</td>
+      <td>76.26m</td>
+      <td>1.30m</td>
+      <td>+271%</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="font-size:0.88rem;color:var(--muted);margin-top:0.5rem;">
+  Going from F8 → F11+explore costs 133 extra minutes but yields <strong>+56.56m gold/run</strong>.
+  That's <strong>425k gold per extra minute played</strong>.
+</p>
+
+<!-- ===== STRATEGY COMPARISON TABLE ===== -->
+<h2>Full Strategy Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Target</th>
+      <th>Reach%</th>
+      <th>Run Time</th>
+      <th>Shrouds</th>
+      <th>Combat ♦</th>
+      <th>Refine ♦</th>
+      <th>Tokens</th>
+      <th>Gold/Run</th>
+      <th>Gold/Hr</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>F5</td><td>100%</td><td>10.8m</td><td>0</td>
+      <td>1.5</td><td>0.0</td><td>75</td><td>1.95m</td><td>0.03m</td>
+      <td><span class="badge ok">Easy</span></td>
+    </tr>
+    <tr>
+      <td>F6</td><td>100%</td><td>16.1m</td><td>0</td>
+      <td>3.0</td><td>1.0</td><td>105</td><td>6.11m</td><td>0.11m</td>
+      <td><span class="badge ok">Easy</span></td>
+    </tr>
+    <tr>
+      <td>F7</td><td>100%</td><td>22.6m</td><td>0</td>
+      <td>5.0</td><td>2.5</td><td>140</td><td>12.03m</td><td>0.21m</td>
+      <td><span class="badge ok">Easy</span></td>
+    </tr>
+    <tr>
+      <td>F8</td><td>100%</td><td>30.9m</td><td>0.5</td>
+      <td>7.5</td><td>4.5</td><td>180</td><td>19.70m</td><td>0.35m</td>
+      <td><span class="badge ok">Reliable</span></td>
+    </tr>
+    <tr>
+      <td>F9</td><td>100%</td><td>41.5m</td><td>2</td>
+      <td>10.5</td><td>7.0</td><td>225</td><td>29.12m</td><td>0.51m</td>
+      <td><span class="badge ok">Reliable</span></td>
+    </tr>
+    <tr>
+      <td>F10</td><td>95%</td><td>53.0m</td><td>5</td>
+      <td>13.8</td><td>9.8</td><td>273</td><td>39.74m</td><td>0.70m</td>
+      <td><span class="badge warn">Risky</span></td>
+    </tr>
+    <tr class="optimal">
+      <td>F11</td><td>71%</td><td>65.4m</td><td>10</td>
+      <td>16.7</td><td>12.3</td><td>312</td><td>48.96m</td><td>0.86m</td>
+      <td><span class="badge star">⭐ Optimal</span></td>
+    </tr>
+    <tr class="unreachable">
+      <td>F12</td><td>0%</td><td>—</td><td>—</td>
+      <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+      <td><span class="badge fail">No shrouds</span></td>
+    </tr>
+    <tr class="unreachable">
+      <td>F13–15</td><td>0%</td><td>—</td><td>—</td>
+      <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+      <td><span class="badge fail">Skills too low</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ===== FLOOR-BY-FLOOR ===== -->
+<h2>Floor-by-Floor Breakdown (Rush to F11)</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Floor</th>
+      <th>Levels</th>
+      <th>Clearability</th>
+      <th></th>
+      <th>Shrouds</th>
+      <th>Time</th>
+      <th>Torches</th>
+      <th>Combat ♦</th>
+      <th>Refine ♦</th>
+      <th>E[Gold]</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>F1</td><td>20–40</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>44s</td><td>4.9</td><td>0.0</td><td>0.0</td><td>0.00m</td>
+    </tr>
+    <tr>
+      <td>F2</td><td>40–60</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>1m12s</td><td>6.5</td><td>0.0</td><td>0.0</td><td>0.00m</td>
+    </tr>
+    <tr>
+      <td>F3</td><td>60–80</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>1m52s</td><td>8.2</td><td>0.0</td><td>0.0</td><td>0.00m</td>
+    </tr>
+    <tr>
+      <td>F4</td><td>80–100</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>2m47s</td><td>9.8</td><td>0.5</td><td>0.0</td><td>0.65m</td>
+    </tr>
+    <tr>
+      <td>F5</td><td>100–120</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>4m11s</td><td>11.4</td><td>1.0</td><td>0.0</td><td>1.30m</td>
+    </tr>
+    <tr>
+      <td>F6</td><td>120–140</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>5m21s</td><td>11.4</td><td>1.5</td><td>1.0</td><td>4.16m</td>
+    </tr>
+    <tr>
+      <td>F7</td><td>140–160</td><td>100%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill green-fill" style="width:100%"></div><div class="bar-label">100%</div></div></td>
+      <td>0</td><td>6m27s</td><td>11.4</td><td>2.0</td><td>1.5</td><td>5.92m</td>
+    </tr>
+    <tr>
+      <td>F8</td><td>160–180</td><td>84%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill yellow-fill" style="width:84%"></div><div class="bar-label">84%</div></div></td>
+      <td>0.5</td><td>8m22s</td><td>11.4</td><td>2.5</td><td>2.0</td><td>7.67m</td>
+    </tr>
+    <tr>
+      <td>F9</td><td>180–200</td><td>68%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill yellow-fill" style="width:68%"></div><div class="bar-label">68%</div></div></td>
+      <td>1.5</td><td>10m34s</td><td>11.4</td><td>3.0</td><td>2.5</td><td>9.43m</td>
+    </tr>
+    <tr>
+      <td>F10</td><td>200–220</td><td>57%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill orange-fill" style="width:57%"></div><div class="bar-label">57%</div></div></td>
+      <td>3.0</td><td>11m27s</td><td>11.4</td><td>3.5</td><td>3.0</td><td>10.62m</td>
+    </tr>
+    <tr style="background:rgba(255,215,0,0.04);">
+      <td><strong>F11</strong></td><td>220–240</td><td>42%</td>
+      <td><div class="bar-bg" style="width:80px"><div class="bar-fill red-fill" style="width:42%"></div><div class="bar-label">42%</div></div></td>
+      <td>5.5</td><td>13m07s</td><td>11.4</td><td>4.0</td><td>3.5</td><td>9.22m</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr style="font-weight:600;border-top:2px solid var(--border);">
+      <td colspan="4">Totals (rush only)</td>
+      <td>10.2</td>
+      <td>65 min</td>
+      <td>109</td>
+      <td>16.7</td>
+      <td>12.3</td>
+      <td>48.96m</td>
+    </tr>
+  </tfoot>
+</table>
+
+<!-- ===== SURPLUS TORCH EXPLORATION ===== -->
+<h2>🔦 Surplus Torch Exploration Plan</h2>
+
+<div class="info-box">
+  You only use <strong>109 of 260 torches</strong> rushing to F11.
+  The remaining <strong>151 torches</strong> should be spent exploring clearable floors for extra chests.
+  Higher floors give more gold per torch, so explore top-down.
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Floor</th>
+      <th>Torches</th>
+      <th>Rooms</th>
+      <th>Time</th>
+      <th>Boxes</th>
+      <th>Tokens</th>
+      <th>Gold</th>
+      <th>Gold/Torch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>F11</td><td>6</td><td>8</td><td>7.5 min</td><td>6.1</td><td>60</td><td>4.14m</td><td style="color:var(--green)">647k</td></tr>
+    <tr><td>F10</td><td>12</td><td>15</td><td>12.2 min</td><td>6.5</td><td>63</td><td>4.43m</td><td style="color:var(--green)">369k</td></tr>
+    <tr><td>F9</td><td>18</td><td>22</td><td>15.0 min</td><td>6.4</td><td>59</td><td>4.34m</td><td>247k</td></tr>
+    <tr><td>F8</td><td>28</td><td>35</td><td>19.8 min</td><td>6.8</td><td>58</td><td>4.60m</td><td>164k</td></tr>
+    <tr><td>F7</td><td>40</td><td>50</td><td>22.7 min</td><td>7.3</td><td>57</td><td>4.96m</td><td>124k</td></tr>
+    <tr><td>F6</td><td>40</td><td>50</td><td>18.8 min</td><td>6.2</td><td>49</td><td>4.25m</td><td>106k</td></tr>
+    <tr><td>F5</td><td>7</td><td>9</td><td>2.6 min</td><td>0.9</td><td>7</td><td>0.58m</td><td>81k</td></tr>
+    <tr style="font-weight:600;border-top:2px solid var(--border);">
+      <td>Total</td><td>151</td><td>189</td><td>98.6 min</td><td>40.1</td><td>353</td><td style="color:var(--green)">+27.31m</td><td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ===== COMBINED RESULTS ===== -->
+<h3>Combined Run Summary</h3>
+<div class="card">
+  <table style="width:auto;">
+    <tr><td style="color:var(--muted);padding-right:2rem;">Rush to F11</td><td>65 min</td><td style="padding-left:2rem;">48.96m gold</td><td style="padding-left:2rem;">16.7 combat + 12.3 refine chests</td></tr>
+    <tr><td style="color:var(--muted);">+ Exploration</td><td>+99 min</td><td style="padding-left:2rem;">+27.31m gold</td><td style="padding-left:2rem;">+40.1 mixed boxes</td></tr>
+    <tr style="font-weight:700;border-top:2px solid var(--border);"><td>Total per run</td><td>164 min</td><td style="padding-left:2rem;">76.26m gold</td><td style="padding-left:2rem;">665 tokens</td></tr>
+  </table>
+</div>
+
+<!-- ===== SKILL BOTTLENECKS ===== -->
+<h2>🚧 Skill Bottlenecks — What's Blocking You</h2>
+
+<div class="info-box">
+  <strong>Skills are your #1 limitation</strong>, not combat. Your combat clears rooms up to level 195–330, but
+  6 of 10 skills cap at Floor 8 (levels 160–180). This is why Floor 9+ clearability plummets.
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Skill</th>
+      <th>Base Level</th>
+      <th>Max Clearable</th>
+      <th></th>
+      <th>Caps At</th>
+      <th>Need for F12</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Cooking</td><td>88</td><td>163</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill red-fill" style="width:40.8%"></div><div class="bar-label">163</div></div></td>
+      <td>Floor 8</td><td style="color:var(--red)">+97 levels</td>
+    </tr>
+    <tr>
+      <td>Foraging</td><td>84</td><td>164</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill red-fill" style="width:41%"></div><div class="bar-label">164</div></div></td>
+      <td>Floor 8</td><td style="color:var(--red)">+96 levels</td>
+    </tr>
+    <tr>
+      <td>Brewing</td><td>91</td><td>166</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill red-fill" style="width:41.5%"></div><div class="bar-label">166</div></div></td>
+      <td>Floor 8</td><td style="color:var(--red)">+94 levels</td>
+    </tr>
+    <tr>
+      <td>Woodcutting</td><td>86</td><td>166</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill red-fill" style="width:41.5%"></div><div class="bar-label">166</div></div></td>
+      <td>Floor 8</td><td style="color:var(--red)">+94 levels</td>
+    </tr>
+    <tr>
+      <td>Enhancing</td><td>115</td><td>175</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill orange-fill" style="width:43.8%"></div><div class="bar-label">175</div></div></td>
+      <td>Floor 8</td><td style="color:var(--red)">+85 levels</td>
+    </tr>
+    <tr>
+      <td>Milking</td><td>100</td><td>180</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill orange-fill" style="width:45%"></div><div class="bar-label">180</div></div></td>
+      <td>Floor 8</td><td style="color:var(--red)">+80 levels</td>
+    </tr>
+    <tr>
+      <td>Alchemy</td><td>111</td><td>195</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill yellow-fill" style="width:48.8%"></div><div class="bar-label">195</div></div></td>
+      <td>Floor 9</td><td style="color:var(--orange)">+65 levels</td>
+    </tr>
+    <tr>
+      <td>Tailoring</td><td>129</td><td>213</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill yellow-fill" style="width:53.3%"></div><div class="bar-label">213</div></div></td>
+      <td>Floor 10</td><td style="color:var(--orange)">+47 levels</td>
+    </tr>
+    <tr>
+      <td>Cheesesmithing</td><td>129</td><td>214</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill yellow-fill" style="width:53.5%"></div><div class="bar-label">214</div></div></td>
+      <td>Floor 10</td><td style="color:var(--orange)">+46 levels</td>
+    </tr>
+    <tr>
+      <td>Crafting</td><td>135</td><td>222</td>
+      <td><div class="bar-bg" style="width:120px"><div class="bar-fill green-fill" style="width:55.5%"></div><div class="bar-label">222</div></div></td>
+      <td>Floor 11</td><td style="color:var(--yellow)">+38 levels</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="font-size:0.88rem;color:var(--muted);margin-top:0.75rem;">
+  Floor 12 requires clearing rooms at levels 240–260. To unlock it you'd need most skills to reach
+  ~260 max clearable — that's roughly <strong>+75–95 base levels</strong> on your weakest 6 skills.
+  Seals only add +2–10 levels (minimal impact).
+</p>
+
+<!-- ===== ACTION PLAN ===== -->
+<h2>📋 Action Plan</h2>
+
+<div class="card">
+  <h3>Every Lab Run:</h3>
+  <ol style="padding-left:1.25rem;font-size:0.92rem;line-height:2;">
+    <li><strong>Rush floors 1→11</strong> — use shrouds on blocked rooms (F8–F11). Takes ~65 minutes.</li>
+    <li><strong>Explore F11 first</strong> (6 torches, best gold/torch at 647k). Only 8 reachable rooms but highest value.</li>
+    <li><strong>Explore F10 → F9 → F8 → F7 → F6</strong> in that order with remaining torches.</li>
+    <li>If you run out of time or patience, <strong>F7+ exploration is the cutoff</strong> — floors below F7 yield &lt;124k gold/torch.</li>
+    <li>Total: ~164 minutes active, then wait 56h cooldown.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>If You Want to Minimize Active Time:</h3>
+  <table>
+    <thead>
+      <tr><th>Strategy</th><th>Time</th><th>Gold/Run</th><th>Gold/Hr</th><th>% of Optimal</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>F11 rush only (skip explore)</td><td>65 min</td><td>48.96m</td><td>0.86m</td><td>66%</td></tr>
+      <tr><td>F11 + explore F11–F8 only</td><td>112 min</td><td>66.13m</td><td>1.14m</td><td>87%</td></tr>
+      <tr class="optimal"><td>⭐ F11 + full explore</td><td>164 min</td><td>76.26m</td><td>1.30m</td><td>100%</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">
+    If 2.7 hours is too much, rush-only at 65 min still nets 49m/run. You lose 27m but save 99 minutes.
+    The "lazy" option is rush F11, explore F11–F8 (112 min) for 87% of optimal income.
+  </p>
+</div>
+
+<div class="card">
+  <h3>Long-Term: Skill Leveling Priority</h3>
+  <p style="font-size:0.9rem;">To unlock Floor 12 (260 max clearable needed), focus on these skills in order of impact:</p>
+  <ol style="padding-left:1.25rem;font-size:0.88rem;line-height:2;margin-top:0.5rem;">
+    <li><strong>Cooking</strong> (88 → ~165) — currently your worst skill room</li>
+    <li><strong>Foraging</strong> (84 → ~165) — tied for worst</li>
+    <li><strong>Woodcutting</strong> (86 → ~165) — quick gathering gains help percolation</li>
+    <li><strong>Brewing</strong> (91 → ~165) — another low skill</li>
+    <li><strong>Milking</strong> (100 → ~165) — gathering skill, benefits from double-progress</li>
+    <li><strong>Enhancing</strong> (115 → ~165) — hardest to level but big impact</li>
+  </ol>
+  <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">
+    Each skill you push past 165 max-clearable removes one blocked room type from F8–F9,
+    incrementally improving clear rate and reducing shroud consumption.
+  </p>
+</div>
+
+<!-- ===== FOOTER ===== -->
+<div class="footer">
+  Generated by <code>scripts/labyrinth_income.ts</code> · Run: <code>npx tsx scripts/labyrinth_income.ts live_data/gragatrim_full_char_data.json</code><br>
+  Chest prices as of 2026-04-05: Combat 1.30m · Skilling 61.7k · Refinement 2.21m
+</div>
+
+</body>
+</html>
