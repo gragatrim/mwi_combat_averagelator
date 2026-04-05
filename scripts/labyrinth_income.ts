@@ -223,6 +223,7 @@ interface FloorExploreStats {
   roomsExplorable: number;
   torchesForFull: number;
   goldPerTorch: number;
+  tokensPerTorch: number;
   timePerRoomS: number;
 }
 
@@ -231,7 +232,7 @@ function getFloorExploreStats(floorNum: number): FloorExploreStats {
   const clearRate = fr?.overall ?? 0;
   const floorDef = FLOORS.find(([f]) => f === floorNum);
   if (!floorDef || clearRate < 0.10) {
-    return { floor: floorNum, clearRate, roomsExplorable: 0, torchesForFull: 0, goldPerTorch: 0, timePerRoomS: 0 };
+    return { floor: floorNum, clearRate, roomsExplorable: 0, torchesForFull: 0, goldPerTorch: 0, tokensPerTorch: 0, timePerRoomS: 0 };
   }
   const [, fmin, fmax] = floorDef;
   const midLevel = (fmin + fmax) / 2;
@@ -246,8 +247,13 @@ function getFloorExploreStats(floorNum: number): FloorExploreStats {
   const regularBoxRate = Math.min(floorNum * 0.01, 0.10);
   const treasureFrac = Math.min(1, treasureCount / Math.max(1, reachable));
   const boxesPerRoom = treasureFrac * treasureBoxRate * 2 + (1 - treasureFrac) * regularBoxRate * clearRate;
+  // Token rewards per room
+  const treasureTokenReward = Math.min(floorNum, 10);
+  const regularTokenRate = Math.min(floorNum * 0.05, 0.50);
+  const tokensPerRoom = treasureFrac * treasureTokenReward + (1 - treasureFrac) * regularTokenRate * clearRate;
   const torchesPerRoom = 1 - preservation;
   const boxesPerTorch = boxesPerRoom / torchesPerRoom;
+  const tokensPerTorch = tokensPerRoom / torchesPerRoom;
   const goldPerBox = (COMBAT_CHEST_VALUE + SKILLING_CHEST_VALUE) / 2;
   const avgCombatTime = getAvgCombatTime(midLevel);
   const timePerRoom = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
@@ -256,6 +262,7 @@ function getFloorExploreStats(floorNum: number): FloorExploreStats {
     floor: floorNum, clearRate, roomsExplorable: reachable,
     torchesForFull: reachable * torchesPerRoom,
     goldPerTorch: boxesPerTorch * goldPerBox,
+    tokensPerTorch,
     timePerRoomS: timePerRoom,
   };
 }
@@ -690,7 +697,7 @@ console.error(
 console.error("─".repeat(115));
 
 // Base: rush-only gold from exit rewards for F1-F13
-const rushOnlyStrat = evaluateStrategy(AUTO_TARGET);
+// Rush-only strategy computation handled below via manual calculation
 // But that strategy already includes exploration. We need pure rush-only.
 let baseExitGold = 0;
 let baseRushTorches = 0;
@@ -766,3 +773,173 @@ for (let f = 1; f <= 7; f++) {
     `${gphActual >= OUTSIDE_GPH ? "✓" : "✗ not worth"}`
   );
 }
+
+// =============================================================================
+// TOKEN OPTIMIZATION: Maximize tokens for scroll purchases (30 tokens/scroll)
+// =============================================================================
+console.error("\n==========================================");
+console.error("TOKEN OPTIMIZATION (30 tokens per scroll)");
+console.error("==========================================\n");
+
+const SCROLL_COST = 30;
+
+// Token sources:
+// 1. Exit rewards per floor (FLOOR_EXIT_REWARDS[f][0])
+// 2. Exploration tokens from treasure rooms + regular rooms
+
+// Compute cumulative exit tokens and explore tokens for each exit floor
+console.error("Exit tokens by floor (cumulative):");
+console.error(
+  "Floor".padStart(5) + " │ " +
+  "FloorTok".padStart(8) + " │ " +
+  "CumExit".padStart(7) + " │ " +
+  "Scrolls".padStart(7) + " │ " +
+  "ExplTok".padStart(7) + " │ " +
+  "TotalTok".padStart(8) + " │ " +
+  "Tok/h(active)".padStart(13) + " │ " +
+  "Scrolls/run"
+);
+console.error("─".repeat(95));
+
+let cumExitTokens = 0;
+for (let f = 1; f <= 15; f++) {
+  const exitRewards = FLOOR_EXIT_REWARDS[f] ?? [0, 0, 0];
+  cumExitTokens += exitRewards[0];
+
+  // Exploration tokens if full-clearing this floor
+  const es = getFloorExploreStats(f);
+  const exploreTokensThisFloor = es.tokensPerTorch * es.torchesForFull;
+
+  // Cumulative explore tokens for optimal F13 strategy (FC 11-13)
+  // For token analysis, show per-floor potential
+  const strat = evaluateStrategy(f);
+  const totalTokens = strat.totalTokens; // already includes exit tokens
+  // Estimate explore tokens: totalTokens from strategy minus pure exit tokens
+
+
+  const activeTimeMin = strat.totalTimeMin;
+  const tokPerHour = activeTimeMin > 0 ? (totalTokens / activeTimeMin) * 60 : 0;
+  const scrollsPerRun = totalTokens / SCROLL_COST;
+
+  console.error(
+    `F${String(f).padStart(3)} │ ` +
+    `${exitRewards[0].toFixed(0).padStart(8)} │ ` +
+    `${cumExitTokens.toFixed(0).padStart(7)} │ ` +
+    `${(cumExitTokens / SCROLL_COST).toFixed(1).padStart(7)} │ ` +
+    `${exploreTokensThisFloor.toFixed(0).padStart(7)} │ ` +
+    `${totalTokens.toFixed(0).padStart(8)} │ ` +
+    `${tokPerHour.toFixed(0).padStart(11)}/h │ ` +
+    `${scrollsPerRun.toFixed(1)}`
+  );
+}
+
+// Token-optimized exploration: where do tokens come from when exploring?
+console.error("\nExploration tokens per floor (full clear):");
+console.error(
+  "Floor".padStart(5) + " │ " +
+  "Rooms".padStart(5) + " │ " +
+  "Torches".padStart(7) + " │ " +
+  "Tok/Torch".padStart(9) + " │ " +
+  "TotalTok".padStart(8) + " │ " +
+  "Time".padStart(6) + " │ " +
+  "Tok/h".padStart(7) + " │ " +
+  "Note"
+);
+console.error("─".repeat(85));
+
+for (let f = 1; f <= AUTO_TARGET; f++) {
+  const es = getFloorExploreStats(f);
+  const totalTok = es.tokensPerTorch * es.torchesForFull;
+  const calibTime = es.timePerRoomS * calibrationFactor;
+  const explTimeMin = (es.roomsExplorable * calibTime) / 60;
+  const tokPerHour = explTimeMin > 0 ? (totalTok / explTimeMin) * 60 : 0;
+
+  console.error(
+    `F${String(f).padStart(3)} │ ` +
+    `${String(es.roomsExplorable).padStart(5)} │ ` +
+    `${es.torchesForFull.toFixed(0).padStart(7)} │ ` +
+    `${es.tokensPerTorch.toFixed(2).padStart(9)} │ ` +
+    `${totalTok.toFixed(0).padStart(8)} │ ` +
+    `${(explTimeMin.toFixed(0) + "m").padStart(6)} │ ` +
+    `${tokPerHour.toFixed(0).padStart(5)}/h │ ` +
+    `${f <= 3 ? "Low tok/room" : f >= 10 ? "High tok/room but few rooms" : ""}`
+  );
+}
+
+// Compare strategies: token-focused vs gold-focused
+console.error("\nToken comparison by strategy:");
+console.error("─".repeat(95));
+
+interface TokenStrategy {
+  name: string;
+  rushTo: number;
+  targetFloor: number;
+}
+
+const tokenStrats: TokenStrategy[] = [
+  { name: "Gold-optimal (Rush 1-10, FC 11-13)", rushTo: 10, targetFloor: 13 },
+  { name: "Rush 1-8, FC 9-13", rushTo: 8, targetFloor: 13 },
+  { name: "Rush 1-6, FC 7-13", rushTo: 6, targetFloor: 13 },
+  { name: "Full clear all F1-13", rushTo: 0, targetFloor: 13 },
+  { name: "Rush 1-10, FC 11-15 (deep)", rushTo: 10, targetFloor: 15 },
+  { name: "Gold-optimal + push F15", rushTo: 10, targetFloor: 15 },
+];
+
+console.error(
+  "Strategy".padEnd(38) + " │ " +
+  "Torches".padStart(7) + " │ " +
+  "Tokens".padStart(6) + " │ " +
+  "Scrolls".padStart(7) + " │ " +
+  "Time".padStart(6) + " │ " +
+  "Tok/h".padStart(6) + " │ " +
+  "Gold".padStart(7) + " │ " +
+  "G/h(act)"
+);
+console.error("─".repeat(105));
+
+for (const ts of tokenStrats) {
+  // Compute tokens: exit tokens + exploration tokens
+  let totalTorches = 0;
+  let totalTokens = 0;
+  let totalGold = 0;
+  let totalTimeMin = 0;
+
+  for (let f = 1; f <= ts.targetFloor; f++) {
+    const exitRewards = FLOOR_EXIT_REWARDS[f] ?? [0, 0, 0];
+    totalTokens += exitRewards[0];
+    totalGold += exitRewards[1] * COMBAT_CHEST_VALUE + exitRewards[2] * REFINEMENT_CHEST_VALUE;
+    const rushT = (RUSH_TORCH_EVENTS[f] ?? 14) * RUSH_OVERHEAD_FACTOR * (1 - preservation);
+    totalTorches += rushT;
+    totalTimeMin += calibratedFloorTimeMin(f);
+
+    // Exploration if this floor is full-cleared
+    if (f > ts.rushTo) {
+      const es = getFloorExploreStats(f);
+      totalTorches += es.torchesForFull;
+      totalGold += es.goldPerTorch * es.torchesForFull;
+      totalTokens += es.tokensPerTorch * es.torchesForFull;
+      totalTimeMin += (es.roomsExplorable * es.timePerRoomS * calibrationFactor) / 60;
+    }
+  }
+
+  const fits = totalTorches <= torchCap;
+  const tokPerH = totalTimeMin > 0 ? (totalTokens / totalTimeMin) * 60 : 0;
+  const gphAct = totalTimeMin > 0 ? (totalGold / totalTimeMin) * 60 : 0;
+  const scrolls = totalTokens / SCROLL_COST;
+
+  console.error(
+    `${ts.name.padEnd(38)} │ ` +
+    `${totalTorches.toFixed(0).padStart(4)}/${torchCap} │ ` +
+    `${totalTokens.toFixed(0).padStart(6)} │ ` +
+    `${scrolls.toFixed(1).padStart(7)} │ ` +
+    `${((totalTimeMin / 60).toFixed(1) + "h").padStart(6)} │ ` +
+    `${tokPerH.toFixed(0).padStart(4)}/h │ ` +
+    `${(totalGold / 1e6).toFixed(1).padStart(5)}m │ ` +
+    `${(gphAct / 1e6).toFixed(1)}m ` +
+    `${!fits ? "✗ OVER" : ""}`
+  );
+}
+
+console.error("\nKey insight: Exit tokens dominate. Pushing deeper floors gives far more tokens");
+console.error("than exploring low floors. Each extra floor gives +5 exit tokens (F8=40, F13=65, F15=75).");
+console.error(`Current unspent tokens: ${upgradeLevels.points}. At 30/scroll that's ${Math.floor(upgradeLevels.points / SCROLL_COST)} scrolls right now.`);
