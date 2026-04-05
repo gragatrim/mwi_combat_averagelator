@@ -31,12 +31,14 @@
     .badge.bad{background:rgba(240,80,96,.12);color:var(--red)}
     .info{background:rgba(108,155,255,.06);border-left:3px solid var(--accent);padding:.75rem 1rem;margin:1rem 0;border-radius:0 6px 6px 0;font-size:.9rem}
     .warn{background:rgba(240,192,64,.06);border-left:3px solid var(--yellow);padding:.75rem 1rem;margin:1rem 0;border-radius:0 6px 6px 0;font-size:.9rem}
+    .bench{border-left:3px dashed var(--orange);background:rgba(224,136,64,.06);padding:.75rem 1rem;margin:1rem 0;border-radius:0 6px 6px 0;font-size:.9rem}
     .two{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
     @media(max-width:700px){.two{grid-template-columns:1fr}}
-    .vs{text-align:center;padding:1rem}
-    .vs .big{font-size:1.6rem}
+    .vs{text-align:center;padding:1rem}.vs .big{font-size:1.6rem}
     .footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--muted);font-size:.8rem}
-    .benchmark{border-left:3px dashed var(--orange);background:rgba(224,136,64,.06);padding:.75rem 1rem;margin:1rem 0;border-radius:0 6px 6px 0;font-size:.9rem}
+    .bar-bg{background:#22253a;border-radius:4px;height:20px;position:relative;overflow:hidden;display:inline-block;vertical-align:middle}
+    .bar-fill{height:100%;border-radius:4px}.bar-label{position:absolute;right:4px;top:0;line-height:20px;font-size:.72rem;color:var(--text);font-weight:600}
+    .g{background:var(--green)}.y{background:var(--yellow)}.r{background:var(--red)}.o{background:var(--orange)}
   </style>
 </head>
 <body>
@@ -46,173 +48,155 @@
 
 <!-- ===== TL;DR ===== -->
 <div class="card hl">
-  <h3 style="color:var(--gold);font-size:1.3rem;margin-bottom:.75rem">
-    ⭐ Exit at F13 for best active gold/h (21.0m/h) — or push F15 for best cycle gold/h (2.35m/h)
+  <h3 style="color:var(--gold);font-size:1.3rem;margin-bottom:.5rem">
+    ⭐ Exit at F13 · Set automation: Rush 1–10, Full Clear 11–13
   </h3>
   <div class="row">
-    <div class="sb"><span class="big" style="color:var(--accent)">21.0m/h</span><span class="lbl">Active gold/h (F13)</span></div>
-    <div class="sb"><span class="big">2.35m/h</span><span class="lbl">Cycle gold/h (F15)</span></div>
+    <div class="sb"><span class="big">24.2m/h</span><span class="lbl">Active gold/h (optimal setting)</span></div>
+    <div class="sb"><span class="big" style="color:var(--accent)">~95m</span><span class="lbl">Gold per run</span></div>
+    <div class="sb"><span class="big" style="color:var(--yellow)">~3.9h</span><span class="lbl">Active play time</span></div>
     <div class="sb"><span class="big" style="color:var(--orange)">10m/h</span><span class="lbl">Outside income</span></div>
   </div>
   <p style="color:var(--muted);font-size:.88rem;margin-top:.5rem">
-    Every floor through F13 earns <strong>15–39m/h of active play</strong> — well above your 10m/h outside income.
-    F14 drops to 12.2m/h and F15 to 10.8m/h — barely better than just leaving the lab.
-    The 56h cooldown means F15 is still the best <em>cycle</em> gold/h, but you're grinding 3.5 hours at near-opportunity-cost rates.
+    Automate rushing F1–10, then manually full-clear F11–13 where exploration is worth 27–35m/h.
+    Don't bother full-clearing F1–10 — exploration only earns 6–18m/h on those floors, barely above your outside income.
+    Exit after F13. F14–F15 earn only 11m/h marginal — not worth the 3.5 extra hours.
   </p>
 </div>
 
-<!-- ===== BENCHMARK ===== -->
-<div class="benchmark">
-  <strong>🎯 Your benchmark: 10m/h outside income.</strong> Any floor earning less than 10m/h of active play time
-  means you'd be better off exiting the lab and doing other things. Floors earning 10–15m/h are marginal.
-  Anything above 15m/h is clearly worth your time.
+<!-- ===== AUTOMATION SETTING ===== -->
+<h2>🤖 Automation Setting: Rush Through Floor X</h2>
+
+<div class="info">
+  The game lets you set "Rush to floor X, then Full Clear from X+1 onward."
+  <strong>Rush</strong> = beeline for exit (picks up revealed treasure on the way).
+  <strong>Full Clear</strong> = explore every reachable room for extra chests.
+  You can't mix — it's one threshold. Which floor should that threshold be?
 </div>
 
-<!-- ===== SIDE BY SIDE ===== -->
-<h2>Quick Exit vs Deep Run</h2>
-<div class="two">
-  <div class="card">
-    <div class="vs">
-      <div style="color:var(--muted);font-size:.85rem">Quick: Exit F8</div>
-      <div class="big" style="color:var(--orange)">39.1m</div>
-      <div class="lbl">gold/run · 2.4h active · 16.2m/h active</div>
-      <p style="margin-top:.5rem;font-size:.85rem">1.6× your outside income.<br>Leaves 5+ hours for other tasks.</p>
-    </div>
-  </div>
-  <div class="card">
-    <div class="vs">
-      <div style="color:var(--muted);font-size:.85rem">⏱ Sweet Spot: Exit F13</div>
-      <div class="big" style="color:var(--accent)">115.3m</div>
-      <div class="lbl">gold/run · 5.5h active · 21.0m/h active</div>
-      <p style="margin-top:.5rem;font-size:.85rem"><strong>2.1× your outside income.</strong><br>Best active gold/h. Every minute well-spent.</p>
-    </div>
-  </div>
-</div>
-<div class="two">
-  <div class="card hl">
-    <div class="vs">
-      <div style="color:var(--muted);font-size:.85rem">⭐ Max Cycle: Push F15</div>
-      <div class="big">152.1m</div>
-      <div class="lbl">gold/run · 8.7h active · 17.5m/h active</div>
-      <p style="margin-top:.5rem;font-size:.85rem">Best gold/cycle (2.35m/h).<br>But F14+F15 earn only 10.8–12.2m/h active.</p>
-    </div>
-  </div>
-  <div class="card" style="border-color:var(--orange)">
-    <div class="vs">
-      <div style="color:var(--muted);font-size:.85rem">⚠️ The F14–F15 tax</div>
-      <div class="big" style="color:var(--red)">3.5h</div>
-      <div class="lbl">extra time for +36.8m gold</div>
-      <p style="margin-top:.5rem;font-size:.85rem">That's <strong>10.5m/h active</strong> — barely above outside income.<br>Could earn ~35m doing other things in that time.</p>
-    </div>
-  </div>
-</div>
-
-<!-- ===== FULL TABLE ===== -->
-<h2>Exit Floor Comparison</h2>
 <table>
-  <thead><tr><th>Exit</th><th>Run Time</th><th>Cycle</th><th>Combat♦</th><th>Refine♦</th><th>Tokens</th><th>Gold/Run</th><th>Gold/Hr (cycle)</th><th>Gold/Hr (active)</th><th>vs 10m/h</th><th></th></tr></thead>
+  <thead><tr><th>Setting</th><th>Full Clear</th><th>Torches</th><th>Explore Gold</th><th>Explore Time</th><th>Total Gold</th><th>Total Time</th><th>Active G/h</th><th></th></tr></thead>
   <tbody>
-    <tr class="dim"><td>F5</td><td>51m</td><td>56.8h</td><td>1.5</td><td>0.0</td><td>75</td><td>8.9m</td><td>0.16m</td><td>10.5m</td><td>1.0×</td><td></td></tr>
-    <tr class="dim"><td>F6</td><td>80m</td><td>57.3h</td><td>3.0</td><td>1.0</td><td>105</td><td>17.3m</td><td>0.30m</td><td>13.0m</td><td>1.3×</td><td></td></tr>
-    <tr><td>F7</td><td>115m (1.9h)</td><td>57.9h</td><td>5.0</td><td>2.5</td><td>140</td><td>28.1m</td><td>0.49m</td><td>14.7m</td><td>1.5×</td><td></td></tr>
-    <tr><td>F8</td><td>145m (2.4h)</td><td>58.4h</td><td>7.5</td><td>4.5</td><td>180</td><td>39.1m</td><td>0.67m</td><td style="color:var(--green)">16.2m</td><td>1.6×</td><td><span class="badge ok">Quick exit</span></td></tr>
-    <tr><td>F9</td><td>173m (2.9h)</td><td>58.9h</td><td>10.5</td><td>7.0</td><td>225</td><td>51.0m</td><td>0.87m</td><td style="color:var(--green)">17.7m</td><td>1.8×</td><td></td></tr>
-    <tr><td>F10</td><td>204m (3.4h)</td><td>59.4h</td><td>14.0</td><td>10.0</td><td>275</td><td>64.9m</td><td>1.09m</td><td style="color:var(--green)">19.1m</td><td>1.9×</td><td><span class="badge ok">Balanced</span></td></tr>
-    <tr><td>F11</td><td>242m (4.0h)</td><td>60.0h</td><td>18.0</td><td>13.5</td><td>330</td><td>80.5m</td><td>1.34m</td><td style="color:var(--green)">20.0m</td><td>2.0×</td><td></td></tr>
-    <tr><td>F12</td><td>282m (4.7h)</td><td>60.7h</td><td>22.5</td><td>17.5</td><td>390</td><td>97.7m</td><td>1.61m</td><td style="color:var(--green)">20.8m</td><td>2.1×</td><td></td></tr>
-    <tr style="background:rgba(108,155,255,.06)"><td><strong>F13</strong></td><td>330m (5.5h)</td><td>61.5h</td><td>27.5</td><td>22.0</td><td>455</td><td>115.3m</td><td>1.88m</td><td style="color:var(--accent)"><strong>21.0m</strong></td><td><strong>2.1×</strong></td><td><span class="badge warn">⏱ Best active G/h</span></td></tr>
-    <tr style="background:rgba(240,192,64,.04)"><td>F14</td><td>416m (6.9h)</td><td>62.9h</td><td>33.0</td><td>27.0</td><td>525</td><td>132.9m</td><td>2.11m</td><td style="color:var(--orange)">19.2m</td><td>1.9×</td><td><span class="badge bad">Active G/h drops</span></td></tr>
-    <tr class="best"><td><strong>F15</strong></td><td>522m (8.7h)</td><td>64.7h</td><td>39.0</td><td>32.5</td><td>600</td><td>152.1m</td><td style="color:var(--gold)"><strong>2.35m</strong></td><td style="color:var(--orange)">17.5m</td><td>1.7×</td><td><span class="badge star">⭐ Best cycle G/h</span></td></tr>
+    <tr class="dim"><td>Full clear all</td><td>F1–F13</td><td>396/260</td><td>40.4m</td><td>+166m</td><td>124.8m</td><td>6.4h</td><td>19.6m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
+    <tr class="dim"><td>Rush 1–4</td><td>F5–F13</td><td>324/260</td><td>36.8m</td><td>+146m</td><td>121.1m</td><td>6.0h</td><td>20.1m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
+    <tr class="dim"><td>Rush 1–5</td><td>F6–F13</td><td>284/260</td><td>33.5m</td><td>+128m</td><td>117.9m</td><td>5.7h</td><td>20.6m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
+    <tr><td>Rush 1–6</td><td>F7–F13</td><td>244/260</td><td>29.3m</td><td>+106m</td><td>113.7m</td><td>5.4h</td><td style="color:var(--green)">21.3m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–7</td><td>F8–F13</td><td>204/260</td><td>24.3m</td><td>+78m</td><td>108.7m</td><td>4.9h</td><td style="color:var(--green)">22.2m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–8</td><td>F9–F13</td><td>176/260</td><td>19.7m</td><td>+54m</td><td>104.1m</td><td>4.5h</td><td style="color:var(--green)">23.2m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–9</td><td>F10–F13</td><td>159/260</td><td>15.4m</td><td>+36m</td><td>99.8m</td><td>4.2h</td><td style="color:var(--green)">23.8m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr class="best"><td><strong>Rush 1–10</strong></td><td><strong>F11–F13</strong></td><td>147/260</td><td>11.0m</td><td>+21m</td><td>95.3m</td><td>3.9h</td><td style="color:var(--gold)"><strong>24.2m</strong></td><td><span class="badge star">⭐ Best active G/h</span></td></tr>
+    <tr><td>Rush 1–11</td><td>F12–F13</td><td>140/260</td><td>6.8m</td><td>+12m</td><td>91.2m</td><td>3.8h</td><td>24.1m</td><td><span class="badge ok">✓ Close 2nd</span></td></tr>
+    <tr><td>Rush 1–12</td><td>F13 only</td><td>135/260</td><td>2.7m</td><td>+5m</td><td>87.1m</td><td>3.7h</td><td>23.7m</td><td></td></tr>
+    <tr><td>Rush all</td><td>None</td><td>132/260</td><td>0</td><td>—</td><td>84.4m</td><td>3.6h</td><td>23.5m</td><td></td></tr>
   </tbody>
 </table>
 
-<!-- ===== MARGINAL ANALYSIS ===== -->
-<h2>📊 Marginal Analysis: What Each Extra Floor Earns Per Hour</h2>
+<div class="card hl">
+  <h3 style="color:var(--gold)">✅ Set Rush to Floor 10, Full Clear from Floor 11</h3>
+  <p style="font-size:.92rem;margin-top:.5rem">
+    This uses 147 of 260 torches and gives the <strong>highest active gold/h at 24.2m</strong>.
+    You spend only 21 extra minutes on exploration but that exploration is on F11–F13 where rooms yield 27–35m/h.
+    The 113 leftover torches are "wasted" but that's fine — spending them on F1–F10 would only earn 6–18m/h, not worth the time.
+  </p>
+</div>
 
-<div class="info">
-  <strong>Marginal gold/h</strong> = how much gold the NEXT floor adds, divided by the time it takes.
-  Compared to your <strong>10m/h</strong> outside income: anything below that line means you'd earn more leaving the lab.
+<!-- ===== WHY NOT EXPLORE LOW FLOORS ===== -->
+<h2>🔦 Are Surplus Torches on Low Floors Worth It?</h2>
+
+<div class="bench">
+  <strong>Your benchmark: 10m/h outside income.</strong> Exploration is only worth it if gold/h from exploring > 10m/h.
 </div>
 
 <table>
-  <thead><tr><th>Floor</th><th>Clear%</th><th>Floor Time</th><th>Cumulative</th><th>Floor Gold</th><th>Cumulative</th><th>Marginal G/h</th><th></th><th>Verdict</th></tr></thead>
+  <thead><tr><th>Floor</th><th>Gold/Room</th><th>Time/Room</th><th>Explore Gold/h</th><th></th><th>Worth it?</th></tr></thead>
   <tbody>
-    <tr><td>F1–F3</td><td>100%</td><td>5 min</td><td>5m</td><td>0m</td><td>0m</td><td>—</td><td></td><td>✓ Just rush</td></tr>
-    <tr><td>F4</td><td>100%</td><td>3 min</td><td>8m</td><td>0.65m</td><td>0.65m</td><td>11.6m</td><td></td><td>✓ Fast</td></tr>
-    <tr><td>F5</td><td>100%</td><td>5 min</td><td>13m</td><td>1.30m</td><td>1.95m</td><td>15.4m</td><td></td><td>✓ Fast</td></tr>
-    <tr><td>F6</td><td>100%</td><td>6 min</td><td>20m</td><td>4.16m</td><td>6.11m</td><td style="color:var(--green)"><strong>38.5m</strong></td><td>⬆⬆</td><td>✓ Amazing value</td></tr>
-    <tr><td>F7</td><td>100%</td><td>29 min</td><td>49m</td><td>9.80m</td><td>15.91m</td><td style="color:var(--green)">20.0m</td><td></td><td>✓ Great</td></tr>
-    <tr><td>F8</td><td>84%</td><td>37 min</td><td>86m</td><td>12.27m</td><td>28.18m</td><td style="color:var(--green)">19.8m</td><td></td><td>✓ Worth it (2.0× outside)</td></tr>
-    <tr><td>F9</td><td>68%</td><td>38 min</td><td>124m</td><td>13.77m</td><td>41.95m</td><td style="color:var(--green)">21.9m</td><td></td><td>✓ Worth it (2.2× outside)</td></tr>
-    <tr><td>F10</td><td>57%</td><td>41 min</td><td>164m</td><td>15.61m</td><td>57.56m</td><td style="color:var(--green)"><strong>23.1m</strong></td><td>⬆</td><td>✓ Peak marginal value!</td></tr>
-    <tr><td>F11</td><td>42%</td><td>46 min</td><td>210m</td><td>17.08m</td><td>74.64m</td><td style="color:var(--green)">22.4m</td><td></td><td>✓ Worth it (2.2× outside)</td></tr>
-    <tr><td>F12</td><td>37%</td><td>49 min</td><td>259m</td><td>18.78m</td><td>93.41m</td><td style="color:var(--green)">23.1m</td><td></td><td>✓ Worth it (2.3× outside)</td></tr>
-    <tr style="background:rgba(108,155,255,.06)"><td><strong>F13</strong></td><td>30%</td><td>56 min</td><td>315m</td><td>19.17m</td><td>112.58m</td><td style="color:var(--green)">20.5m</td><td></td><td>✓ Worth it (2.1× outside)</td></tr>
-    <tr style="background:rgba(240,192,64,.06)"><td><strong>F14</strong></td><td>16%</td><td>93 min</td><td>408m</td><td>18.88m</td><td>131.46m</td><td style="color:var(--yellow)"><strong>12.2m</strong></td><td>⬇⬇</td><td>⚠ Barely beats outside (1.2×)</td></tr>
-    <tr style="background:rgba(240,80,96,.06)"><td><strong>F15</strong></td><td>13%</td><td>114 min</td><td>522m</td><td>20.64m</td><td>152.10m</td><td style="color:var(--orange)"><strong>10.8m</strong></td><td>⬇</td><td>⚠ Barely beats outside (1.1×)</td></tr>
+    <tr><td>F1</td><td>12.9k</td><td>~8s</td><td style="color:var(--red)"><strong>5.9m/h</strong></td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill r" style="width:39%"></div><div class="bar-label">5.9m</div></div></td>
+      <td><span class="badge bad">✗ No (0.6× outside)</span></td></tr>
+    <tr><td>F2</td><td>28.0k</td><td>~10s</td><td style="color:var(--orange)">10.0m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill o" style="width:67%"></div><div class="bar-label">10.0m</div></div></td>
+      <td><span class="badge warn">~ Breakeven</span></td></tr>
+    <tr><td>F3</td><td>41.6k</td><td>~13s</td><td style="color:var(--yellow)">11.6m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill y" style="width:77%"></div><div class="bar-label">11.6m</div></div></td>
+      <td><span class="badge warn">~ Barely worth it</span></td></tr>
+    <tr><td>F4</td><td>53.7k</td><td>~16s</td><td style="color:var(--yellow)">11.8m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill y" style="width:79%"></div><div class="bar-label">11.8m</div></div></td>
+      <td><span class="badge warn">~ Barely worth it</span></td></tr>
+    <tr><td>F5</td><td>64.7k</td><td>~21s</td><td style="color:var(--yellow)">11.0m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill y" style="width:73%"></div><div class="bar-label">11.0m</div></div></td>
+      <td><span class="badge warn">~ Barely worth it</span></td></tr>
+    <tr><td>F6</td><td>85.0k</td><td>~27s</td><td style="color:var(--yellow)">11.2m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill y" style="width:75%"></div><div class="bar-label">11.2m</div></div></td>
+      <td><span class="badge warn">~ Barely worth it</span></td></tr>
+    <tr><td>F7</td><td>99.1k</td><td>~33s</td><td style="color:var(--yellow)">10.8m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill y" style="width:72%"></div><div class="bar-label">10.8m</div></div></td>
+      <td><span class="badge warn">~ Barely worth it</span></td></tr>
+    <tr><td>F8</td><td>131.4k</td><td>~41s</td><td style="color:var(--yellow)">11.5m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill y" style="width:77%"></div><div class="bar-label">11.5m</div></div></td>
+      <td><span class="badge warn">~ Barely worth it</span></td></tr>
+    <tr><td>F9</td><td>197.4k</td><td>~50s</td><td style="color:var(--green)">14.3m/h</td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill g" style="width:95%"></div><div class="bar-label">14.3m</div></div></td>
+      <td><span class="badge ok">✓ Worth it (1.4×)</span></td></tr>
+    <tr><td>F10</td><td>295.6k</td><td>~59s</td><td style="color:var(--green)"><strong>18.0m/h</strong></td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill g" style="width:100%"></div><div class="bar-label">18.0m</div></div></td>
+      <td><span class="badge ok">✓ Worth it (1.8×)</span></td></tr>
+    <tr style="background:rgba(76,221,123,.06)"><td><strong>F11</strong></td><td>517.8k</td><td>~68s</td><td style="color:var(--green)"><strong>27.5m/h</strong></td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill g" style="width:100%"></div><div class="bar-label">27.5m</div></div></td>
+      <td><span class="badge star">⭐ 2.8× outside</span></td></tr>
+    <tr style="background:rgba(76,221,123,.06)"><td><strong>F12</strong></td><td>680.9k</td><td>~71s</td><td style="color:var(--green)"><strong>34.5m/h</strong></td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill g" style="width:100%"></div><div class="bar-label">34.5m</div></div></td>
+      <td><span class="badge star">⭐ 3.5× outside</span></td></tr>
+    <tr style="background:rgba(76,221,123,.06)"><td><strong>F13</strong></td><td>680.9k</td><td>~74s</td><td style="color:var(--green)"><strong>33.1m/h</strong></td>
+      <td><div class="bar-bg" style="width:150px"><div class="bar-fill g" style="width:100%"></div><div class="bar-label">33.1m</div></div></td>
+      <td><span class="badge star">⭐ 3.3× outside</span></td></tr>
   </tbody>
 </table>
 
 <div class="card" style="border-color:var(--orange)">
-  <h3>The F14–F15 Cliff</h3>
-  <p style="font-size:.92rem">
-    Floors 4–13 earn <strong>12–39m/h</strong> per floor — solidly above your 10m/h benchmark.
-    Then it falls off a cliff:
+  <h3>Answer: No — low floor exploration barely beats leaving the lab</h3>
+  <p style="font-size:.92rem;margin-top:.5rem">
+    F1 exploration earns only <strong>5.9m/h</strong> — below your outside income. F2–F8 earn 10–12m/h — technically above
+    10m/h but only barely, and certainly not worth the hassle when you could be done faster.
   </p>
-  <table style="width:auto;margin:.75rem 0">
-    <tr><td style="color:var(--green)">F13:</td><td><strong>20.5m/h</strong> marginal (2.1× outside)</td></tr>
-    <tr><td style="color:var(--yellow)">F14:</td><td><strong>12.2m/h</strong> marginal (1.2× outside) — 93 min for 18.9m gold</td></tr>
-    <tr><td style="color:var(--orange)">F15:</td><td><strong>10.8m/h</strong> marginal (1.1× outside) — 114 min for 20.6m gold</td></tr>
-  </table>
-  <p style="font-size:.92rem">
-    F14+F15 together: <strong>3.5 hours for 39.5m gold = 11.3m/h</strong>.
-    Doing other activities at 10m/h would net you 35m in the same time — almost the same reward with zero frustration.
+  <p style="font-size:.92rem;margin-top:.5rem">
+    Even if rooms only take 20 seconds, the <strong>gold per room</strong> is the problem: F1 gives 12.9k/room, F5 gives 64.7k/room.
+    At 20s that's 2.3m/h and 11.6m/h respectively. Speed doesn't fix the low reward per room.
+  </p>
+  <p style="font-size:.92rem;margin-top:.5rem">
+    The 113 surplus torches go unspent. <strong>That's fine.</strong> Spending them on F2–F8 would yield ~10.5m extra gold
+    in ~60 extra minutes — that's 10.5m/h, essentially the same as doing something else outside the lab.
   </p>
 </div>
 
-<!-- ===== RECOMMENDATION ===== -->
-<h2>📋 Recommendation</h2>
-
-<div class="card hl">
-  <table>
-    <thead><tr><th>If you…</th><th>Exit at</th><th>Time</th><th>Gold/Run</th><th>Active G/h</th><th>Why</th></tr></thead>
-    <tbody>
-      <tr><td>Want max gold/cycle</td><td><strong>F15</strong></td><td>8.7h</td><td>152m</td><td>17.5m</td><td>Mathematically best per-cycle, but F14–F15 are a grind at ~11m/h</td></tr>
-      <tr style="background:rgba(108,155,255,.08)"><td><strong>Want best active gold/h</strong></td><td><strong>F13</strong></td><td>5.5h</td><td>115m</td><td style="color:var(--accent)"><strong>21.0m</strong></td><td>Every minute earns 2.1× outside income. Stop before the cliff.</td></tr>
-      <tr><td>Want a 3–4h session</td><td><strong>F10–F11</strong></td><td>3.4–4h</td><td>65–80m</td><td>19–20m</td><td>Still solid at 2× outside income</td></tr>
-      <tr><td>Want quick in-and-out</td><td><strong>F8</strong></td><td>2.4h</td><td>39m</td><td>16.2m</td><td>1.6× outside income, mostly clearable rooms</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="info">
-  <strong>Bottom line:</strong> <strong>F13 is your sweet spot.</strong> You earn 115m in 5.5 hours at 21m/h active — the highest
-  active gold rate. F14–F15 add 37m but take 3.5 more hours at only 11m/h — barely better than just
-  leaving the lab and earning 10m/h doing other things. If you value your time, exit at F13 and go
-  earn elsewhere.
-</div>
-
-<!-- ===== TORCH PLAN ===== -->
-<h2>🔦 Torch Plan (F13 Exit, Explore As You Ascend)</h2>
-
-<div class="warn">
-  <strong>⚠️ You cannot return to previous floors.</strong> Save torches from early floors for high-value later floors.
-</div>
+<!-- ===== MARGINAL ANALYSIS (shortened) ===== -->
+<h2>📊 F14–F15: Still Not Worth It</h2>
 
 <table>
-  <thead><tr><th>Floor</th><th>Rush</th><th>Explore</th><th>Time</th><th>Exit Gold</th><th>Explore Gold</th><th>Marginal G/h</th></tr></thead>
+  <thead><tr><th>Floor</th><th>Time</th><th>Gold</th><th>Marginal G/h</th><th>vs 10m/h</th></tr></thead>
   <tbody>
-    <tr style="opacity:.5"><td>F1–F6</td><td>52T</td><td>0</td><td>~20 min</td><td>6.11m</td><td>—</td><td>various</td></tr>
-    <tr><td>F7</td><td>11T</td><td>31T explore</td><td>~30 min</td><td>5.92m</td><td>3.89m</td><td>20m/h</td></tr>
-    <tr><td>F8</td><td>11T</td><td>28T explore</td><td>~37 min</td><td>7.67m</td><td>4.60m</td><td>20m/h</td></tr>
-    <tr><td>F9</td><td>11T</td><td>18T explore</td><td>~38 min</td><td>9.43m</td><td>4.34m</td><td>22m/h</td></tr>
-    <tr><td>F10</td><td>11T</td><td>12T explore</td><td>~41 min</td><td>11.18m</td><td>4.43m</td><td>23m/h</td></tr>
-    <tr><td>F11</td><td>11T</td><td>6T explore</td><td>~46 min</td><td>12.94m</td><td>4.14m</td><td>22m/h</td></tr>
-    <tr><td>F12</td><td>11T</td><td>5T explore</td><td>~49 min</td><td>14.69m</td><td>4.09m</td><td>23m/h</td></tr>
-    <tr><td>F13</td><td>11T</td><td>3T explore</td><td>~56 min</td><td>16.45m</td><td>2.72m</td><td>21m/h</td></tr>
-    <tr style="font-weight:600;border-top:2px solid var(--border)"><td colspan="2">Total</td><td>260T used</td><td>~5.5h</td><td colspan="2">115.3m gold</td><td>21.0m/h avg</td></tr>
+    <tr><td>F4–F13 (each)</td><td>3–56 min</td><td>0.7–19.2m</td><td style="color:var(--green)">12–39m/h</td><td>1.2–3.9×</td></tr>
+    <tr style="background:rgba(240,192,64,.06)"><td><strong>F14</strong></td><td>93 min</td><td>18.9m</td><td style="color:var(--yellow)"><strong>12.2m/h</strong></td><td>1.2× — barely</td></tr>
+    <tr style="background:rgba(240,80,96,.06)"><td><strong>F15</strong></td><td>114 min</td><td>20.6m</td><td style="color:var(--orange)"><strong>10.8m/h</strong></td><td>1.1× — barely</td></tr>
+    <tr style="font-weight:600;border-top:2px solid var(--border)"><td>F14+F15 combined</td><td>3.5 hours</td><td>39.5m</td><td style="color:var(--orange)">11.3m/h</td><td>Could earn ~35m outside instead</td></tr>
   </tbody>
 </table>
+
+<!-- ===== FINAL PLAN ===== -->
+<h2>📋 Your Plan</h2>
+
+<div class="card hl">
+  <ol style="padding-left:1.25rem;font-size:.95rem;line-height:2.2">
+    <li><strong>Set automation:</strong> Rush to Floor 10, Full Clear from Floor 11</li>
+    <li><strong>Let automation run F1–F12</strong> (rush 1–10, full clear 11–12)</li>
+    <li><strong>Manually clear F13</strong> (full clear, explore all reachable rooms — 33m/h exploration)</li>
+    <li><strong>Exit the labyrinth after F13</strong></li>
+    <li><strong>Go do other things</strong> — F14–F15 only earn ~11m/h, basically equal to your outside income</li>
+  </ol>
+  <p style="font-size:.88rem;color:var(--muted);margin-top:.75rem">
+    Expected: ~95m gold, ~3.9 hours, 24.2m/h active. Uses 147/260 torches (113 surplus — not worth spending).
+    Compare to your old F15 deep runs: 152m gold in 8.7h = 17.5m/h active. <strong>This is 38% more gold-efficient per hour played.</strong>
+  </p>
+</div>
 
 <div class="footer">
   Generated by <code>scripts/labyrinth_income.ts</code> · Calibrated to ~7h F15 runs · Outside benchmark: 10m/h<br>

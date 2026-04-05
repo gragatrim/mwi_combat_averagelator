@@ -606,3 +606,163 @@ for (const sc of scenarios) {
 console.error(`\nOutside income benchmark: 10m/h`);
 console.error(`Key question: Does each extra floor earn more than 10m/h of active play time?`);
 console.error(`If not, you should exit the lab and go do other things.`);
+
+// =============================================================================
+// AUTOMATION ANALYSIS: Rush-to-X then full-clear
+// =============================================================================
+// In-game automation: rush floors 1..X, full clear floors X+1..target.
+// Cannot mix and match. Must find optimal X.
+// Also: is exploring low floors worth it at all?
+console.error("\n==========================================");
+console.error("AUTOMATION SETTING: Rush-to-X Analysis (Exit at F13)");
+console.error("==========================================");
+
+const AUTO_TARGET = 13;
+const OUTSIDE_GPH = 10_000_000;
+
+// First: compute gold/h of EXPLORATION on each floor
+// (not rush — rush is mandatory. This is the marginal value of full-clear vs rush-only)
+console.error("\nExploration gold/hour by floor (is full-clearing worth it?):");
+console.error(
+  "Floor".padStart(5) + " │ " +
+  "Clear%".padStart(6) + " │ " +
+  "Rooms".padStart(5) + " │ " +
+  "Torches".padStart(7) + " │ " +
+  "Gold/room".padStart(9) + " │ " +
+  "Time/room".padStart(9) + " │ " +
+  "Explore G/h".padStart(11) + " │ " +
+  "vs 10m/h"
+);
+console.error("─".repeat(85));
+
+interface AutoFloorData {
+  floor: number;
+  clearRate: number;
+  explorable: number;
+  torchesForFull: number;
+  goldPerRoom: number;
+  timePerRoomS: number; // calibrated
+  exploreGPH: number;
+}
+
+const autoFloorData: AutoFloorData[] = [];
+
+for (let f = 1; f <= AUTO_TARGET; f++) {
+  const es = getFloorExploreStats(f);
+  const goldPerRoom = es.goldPerTorch * (1 - preservation); // gold per torch × torches per room
+  const calibTimePerRoom = es.timePerRoomS * calibrationFactor;
+  const exploreGPH = calibTimePerRoom > 0 ? (goldPerRoom / calibTimePerRoom) * 3600 : 0;
+
+  autoFloorData.push({
+    floor: f, clearRate: es.clearRate, explorable: es.roomsExplorable,
+    torchesForFull: es.torchesForFull, goldPerRoom, timePerRoomS: calibTimePerRoom,
+    exploreGPH,
+  });
+
+  const verdict = exploreGPH >= OUTSIDE_GPH * 1.5 ? "✓ Worth it" :
+                  exploreGPH >= OUTSIDE_GPH ? "~ Marginal" : "✗ Below outside";
+  console.error(
+    `F${String(f).padStart(3)} │ ` +
+    `${(es.clearRate * 100).toFixed(0).padStart(5)}% │ ` +
+    `${String(es.roomsExplorable).padStart(5)} │ ` +
+    `${es.torchesForFull.toFixed(0).padStart(7)} │ ` +
+    `${(goldPerRoom / 1e3).toFixed(1).padStart(7)}k │ ` +
+    `${(calibTimePerRoom.toFixed(0) + "s").padStart(9)} │ ` +
+    `${(exploreGPH / 1e6).toFixed(1).padStart(9)}m │ ` +
+    verdict
+  );
+}
+
+// Now: evaluate each possible rush threshold
+console.error("\nAutomation setting comparison (Rush F1..X, Full Clear F(X+1)..F13):");
+console.error(
+  "Setting".padStart(12) + " │ " +
+  "Rush".padStart(8) + " │ " +
+  "FullClr".padStart(8) + " │ " +
+  "Torches".padStart(7) + " │ " +
+  "ExplGold".padStart(9) + " │ " +
+  "ExplTime".padStart(8) + " │ " +
+  "TotalGold".padStart(10) + " │ " +
+  "TotalTime".padStart(9) + " │ " +
+  "ActiveG/h".padStart(9) + " │ " +
+  "Fit?"
+);
+console.error("─".repeat(115));
+
+// Base: rush-only gold from exit rewards for F1-F13
+const rushOnlyStrat = evaluateStrategy(AUTO_TARGET);
+// But that strategy already includes exploration. We need pure rush-only.
+let baseExitGold = 0;
+let baseRushTorches = 0;
+let baseRushTimeMin = 0;
+for (let f = 1; f <= AUTO_TARGET; f++) {
+  const exitRewards = FLOOR_EXIT_REWARDS[f] ?? [0, 0, 0];
+  baseExitGold += exitRewards[1] * COMBAT_CHEST_VALUE + exitRewards[2] * REFINEMENT_CHEST_VALUE;
+  baseRushTorches += (RUSH_TORCH_EVENTS[f] ?? 14) * RUSH_OVERHEAD_FACTOR * (1 - preservation);
+  baseRushTimeMin += calibratedFloorTimeMin(f);
+}
+
+let bestAutoSetting = -1;
+let bestAutoGPH = 0;
+
+for (let rushTo = 0; rushTo <= AUTO_TARGET; rushTo++) {
+  // Rush floors 1..rushTo, full clear floors rushTo+1..AUTO_TARGET
+  let totalTorches = baseRushTorches; // rush torches are always spent
+  let totalExplGold = 0;
+  let totalExplTimeMin = 0;
+
+  for (let f = rushTo + 1; f <= AUTO_TARGET; f++) {
+    const afd = autoFloorData[f - 1];
+    totalTorches += afd.torchesForFull;
+    totalExplGold += afd.goldPerRoom * afd.explorable;
+    totalExplTimeMin += (afd.explorable * afd.timePerRoomS) / 60;
+  }
+
+  const fits = totalTorches <= torchCap;
+  const totalGold = baseExitGold + totalExplGold;
+  const totalTimeMin = baseRushTimeMin + totalExplTimeMin;
+  const activeGPH = totalTimeMin > 0 ? (totalGold / totalTimeMin) * 60 : 0;
+
+  if (fits && activeGPH > bestAutoGPH) {
+    bestAutoGPH = activeGPH;
+    bestAutoSetting = rushTo;
+  }
+
+  const rushLabel = rushTo === 0 ? "Full clear all" : `Rush 1-${rushTo}`;
+  const fullLabel = rushTo >= AUTO_TARGET ? "(none)" : `FC ${rushTo + 1}-${AUTO_TARGET}`;
+  const marker = fits && activeGPH > bestAutoGPH ? " ★" : "";
+
+  console.error(
+    `${rushLabel.padStart(12)} │ ` +
+    `${fullLabel.padStart(8)} │ ` +
+    `${(rushTo < AUTO_TARGET ? `${AUTO_TARGET - rushTo} floors` : "none").padStart(8)} │ ` +
+    `${totalTorches.toFixed(0).padStart(4)}/${torchCap} │ ` +
+    `${(totalExplGold / 1e6).toFixed(2).padStart(7)}m │ ` +
+    `${(totalExplTimeMin.toFixed(0) + "m").padStart(8)} │ ` +
+    `${(totalGold / 1e6).toFixed(2).padStart(8)}m │ ` +
+    `${(totalTimeMin.toFixed(0) + "m").padStart(9)} │ ` +
+    `${(activeGPH / 1e6).toFixed(1).padStart(7)}m │ ` +
+    `${fits ? "✓" : "✗ OVER"}` +
+    marker
+  );
+}
+
+console.error(`\n★ Optimal automation: Rush floors 1-${bestAutoSetting}, Full Clear floors ${bestAutoSetting + 1}-${AUTO_TARGET}`);
+console.error(`  Active gold/h: ${(bestAutoGPH / 1e6).toFixed(1)}m`);
+
+// Final answer about low-floor exploration
+console.error("\n==========================================");
+console.error("IS EXPLORING LOW FLOORS WORTH IT?");
+console.error("==========================================\n");
+console.error("Even at 20s per room, the gold per room on early floors is tiny:");
+for (let f = 1; f <= 7; f++) {
+  const afd = autoFloorData[f - 1];
+  const gphAt20s = (afd.goldPerRoom / 20) * 3600;
+  const gphActual = afd.exploreGPH;
+  console.error(
+    `  F${f}: ${(afd.goldPerRoom / 1e3).toFixed(1)}k/room → ` +
+    `at 20s = ${(gphAt20s / 1e6).toFixed(1)}m/h, ` +
+    `at actual ${afd.timePerRoomS.toFixed(0)}s = ${(gphActual / 1e6).toFixed(1)}m/h ` +
+    `${gphActual >= OUTSIDE_GPH ? "✓" : "✗ not worth"}`
+  );
+}
