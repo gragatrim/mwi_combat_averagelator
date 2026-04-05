@@ -555,33 +555,49 @@ if (bestStrategy) {
   console.error(`  Gold per active min:   ${(best.goldPerActiveMinute / 1e6).toFixed(3)}m`);
 
   // =============================================================================
-  // Exploration analysis: what to do with surplus torches
+  // Exploration analysis: forward-pass torch allocation
+  // CONSTRAINT: You CANNOT return to previous floors. You must explore each
+  // floor BEFORE ascending. Torch budget must be planned as a forward pass.
   // =============================================================================
   const surplusTorches = torchCap - best.expectedTorchesUsed;
   if (surplusTorches > 10) {
     console.error(`\n==========================================`);
     console.error(`EXPLORATION WITH ${Math.round(surplusTorches)} SURPLUS TORCHES`);
+    console.error(`(You must explore each floor before ascending — no going back!)`);
     console.error(`==========================================\n`);
 
     const preservation = EXPERT_TORCH_PRESERVATION;
 
-    interface ExploreFloorValue {
+    // Step 1: Compute per-floor exploration stats
+    interface ExploreFloorData {
       floor: number;
       clearRate: number;
+      reachProb: number;        // probability you actually reach this floor
       roomsExplorable: number;
-      torchesNeeded: number;
+      torchesForFullExplore: number;
       tokensPerTorch: number;
       boxesPerTorch: number;
-      goldPerTorch: number;
+      goldPerTorch: number;     // raw gold per torch on this floor
+      expectedGoldPerTorch: number; // reachProb-weighted
       timePerRoom: number;
     }
 
-    const exploreValues: ExploreFloorValue[] = [];
+    const floorExploreData: ExploreFloorData[] = [];
 
     for (let f = 1; f <= best.targetFloor; f++) {
       const fr = analysis.floorResults.find(r => r.floor === f);
       const clearRate = fr?.overall ?? 0;
-      if (clearRate < 0.30) continue;
+      const reachProb = best.reachProbs[f - 1] ?? 0;
+      // We also get exit reward contribution when we complete a floor,
+      // but for exploration: we can only explore rooms we can actually clear
+      if (clearRate < 0.15) {
+        floorExploreData.push({
+          floor: f, clearRate, reachProb, roomsExplorable: 0,
+          torchesForFullExplore: 0, tokensPerTorch: 0, boxesPerTorch: 0,
+          goldPerTorch: 0, expectedGoldPerTorch: 0, timePerRoom: 0,
+        });
+        continue;
+      }
 
       const floorDef = FLOORS.find(([fn]) => fn === f);
       if (!floorDef) continue;
@@ -617,68 +633,172 @@ if (bestStrategy) {
       const avgCombatTime = getAvgCombatTime(midLevel);
       const timePerRoom = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
 
-      exploreValues.push({
-        floor: f, clearRate, roomsExplorable: reachable,
-        torchesNeeded: torchesForFull, tokensPerTorch, boxesPerTorch,
-        goldPerTorch, timePerRoom,
+      floorExploreData.push({
+        floor: f, clearRate, reachProb, roomsExplorable: reachable,
+        torchesForFullExplore: torchesForFull, tokensPerTorch, boxesPerTorch,
+        goldPerTorch, expectedGoldPerTorch: goldPerTorch * reachProb,
+        timePerRoom,
       });
     }
 
-    exploreValues.sort((a, b) => b.goldPerTorch - a.goldPerTorch);
+    // Step 2: Two-pass optimal allocation
+    // Pass 1: Compute how many rush torches are needed for floors F+1..target
+    //         so we know the minimum reserve at each floor.
+    // Pass 2: Forward walk — on each floor, allocate exploration torches
+    //         = min(available - future_rush_reserve, floor_capacity)
+    //         But we want to allocate MORE to high-value floors.
+    //
+    // Strategy: Pre-compute each floor's expected gold/torch (reachProb-weighted).
+    // Then do a two-pass:
+    //   1. Calculate minimum torch reserve needed at each floor (rush for remaining floors)
+    //   2. Distribute surplus using priority: for each torch, which floor gives highest
+    //      expected gold/torch? But respecting the constraint that floor F's torches
+    //      must come from the budget when you're ON floor F.
+    //
+    // Simplified approach: forward pass with "save for better" logic.
+    // At each floor, compare this floor's expected gold/torch vs the best
+    // expected gold/torch of any FUTURE floor. If a future floor is better,
+    // save torches for it. Otherwise spend here.
 
-    console.error("Floor exploration value (sorted by gold/torch):");
-    console.error(
-      "Floor".padStart(5) + " │ " +
-      "Clear%".padStart(6) + " │ " +
-      "Rooms".padStart(5) + " │ " +
-      "Torches".padStart(7) + " │ " +
-      "Tok/T".padStart(6) + " │ " +
-      "Box/T".padStart(6) + " │ " +
-      "Gold/T".padStart(8) + " │ " +
-      "Time/room".padStart(9)
-    );
-    console.error("─".repeat(70));
-
-    for (const ev of exploreValues) {
-      console.error(
-        `F${String(ev.floor).padStart(3)} │ ` +
-        `${(ev.clearRate * 100).toFixed(0).padStart(5)}% │ ` +
-        `${String(ev.roomsExplorable).padStart(5)} │ ` +
-        `${ev.torchesNeeded.toFixed(0).padStart(7)} │ ` +
-        `${ev.tokensPerTorch.toFixed(2).padStart(6)} │ ` +
-        `${ev.boxesPerTorch.toFixed(3).padStart(6)} │ ` +
-        `${(ev.goldPerTorch / 1e3).toFixed(0).padStart(6)}k │ ` +
-        `${(ev.timePerRoom.toFixed(0) + "s").padStart(9)}`
-      );
+    // Compute rush reserve: torches needed to rush from floor F+1 to target
+    const rushReserveAtFloor: number[] = [];
+    {
+      let cumRush = 0;
+      for (let f = best.targetFloor; f >= 1; f--) {
+        rushReserveAtFloor[f] = cumRush;
+        const rushTorches = (RUSH_TORCH_EVENTS[f] ?? 14) * RUSH_OVERHEAD_FACTOR * (1 - preservation);
+        cumRush += rushTorches;
+      }
     }
 
-    console.error(`\nGreedy torch allocation (${Math.round(surplusTorches)} surplus):`);
-    let remaining = surplusTorches;
+    // Compute best future expected gold/torch at each floor (looking forward)
+    const bestFutureGoldPerTorch: number[] = new Array(best.targetFloor + 2).fill(0);
+    for (let f = best.targetFloor; f >= 1; f--) {
+      const thisFloor = floorExploreData.find(d => d.floor === f);
+      const thisVal = thisFloor?.expectedGoldPerTorch ?? 0;
+      bestFutureGoldPerTorch[f] = Math.max(thisVal, bestFutureGoldPerTorch[f + 1] ?? 0);
+    }
+
+    // Forward pass: allocate exploration torches
+    interface FloorAllocation {
+      floor: number;
+      exploreTorches: number;
+      exploreRooms: number;
+      exploreTimeS: number;
+      exploreGold: number;
+      exploreBoxes: number;
+      exploreTokens: number;
+      torchBudgetBefore: number;
+      torchBudgetAfter: number;
+      goldPerTorch: number;
+      decision: string;
+    }
+
+    const allocations: FloorAllocation[] = [];
+    let torchBudget = torchCap;
     let totalExploreGold = 0;
     let totalExploreTime = 0;
     let totalExploreTokens = 0;
     let totalExploreBoxes = 0;
 
-    for (const ev of exploreValues) {
-      if (remaining <= 0) break;
-      const alloc = Math.min(remaining, ev.torchesNeeded);
-      const rooms = alloc / (1 - preservation);
-      const gold = alloc * ev.goldPerTorch;
-      const tokens = alloc * ev.tokensPerTorch;
-      const boxes = alloc * ev.boxesPerTorch;
-      const time = rooms * ev.timePerRoom;
+    for (let f = 1; f <= best.targetFloor; f++) {
+      const fd = floorExploreData.find(d => d.floor === f)!;
+      const rushTorches = (RUSH_TORCH_EVENTS[f] ?? 14) * RUSH_OVERHEAD_FACTOR * (1 - preservation);
+      const budgetBefore = torchBudget;
 
-      totalExploreGold += gold;
-      totalExploreTime += time;
-      totalExploreTokens += tokens;
-      totalExploreBoxes += boxes;
-      remaining -= alloc;
+      // Deduct rush cost for this floor
+      torchBudget -= rushTorches;
 
+      // How many torches can we spare? Must keep enough for future rush.
+      const futureReserve = rushReserveAtFloor[f] ?? 0;
+      const availableForExplore = Math.max(0, torchBudget - futureReserve);
+
+      // How many torches does this floor need for full explore?
+      const maxExplore = fd.torchesForFullExplore;
+
+      // Should we explore here or save for a better future floor?
+      const bestFuture = bestFutureGoldPerTorch[f + 1] ?? 0;
+      const thisVal = fd.expectedGoldPerTorch;
+
+      let exploreTorches = 0;
+      let decision = "";
+
+      if (fd.roomsExplorable === 0 || fd.clearRate < 0.15) {
+        decision = "Skip (low clear rate)";
+      } else if (thisVal >= bestFuture) {
+        // This floor is at least as good as anything ahead — explore fully
+        exploreTorches = Math.min(availableForExplore, maxExplore);
+        decision = exploreTorches >= maxExplore ? "Full explore (best value)" :
+                   exploreTorches > 0 ? "Partial (best value, torch-limited)" : "Skip (no budget)";
+      } else {
+        // A future floor is better. But we may still have excess torches
+        // that we can't use later (future floors have limited capacity too).
+        // Calculate how many torches future floors can actually absorb.
+        let futureCapacity = 0;
+        for (let ff = f + 1; ff <= best.targetFloor; ff++) {
+          const ffd = floorExploreData.find(d => d.floor === ff);
+          if (ffd && ffd.expectedGoldPerTorch > thisVal) {
+            futureCapacity += ffd.torchesForFullExplore;
+          }
+        }
+        // Save enough for better future floors, spend the rest here
+        const saveForFuture = Math.min(availableForExplore, futureCapacity);
+        const spendHere = Math.min(Math.max(0, availableForExplore - saveForFuture), maxExplore);
+        exploreTorches = spendHere;
+        decision = exploreTorches > 0 ? `Partial (saving ${saveForFuture.toFixed(0)}T for better floors)` : "Save for later";
+      }
+
+      torchBudget -= exploreTorches;
+
+      const rooms = exploreTorches / (1 - preservation);
+      const gold = exploreTorches * fd.goldPerTorch;
+      const boxes = exploreTorches * fd.boxesPerTorch;
+      const tokens = exploreTorches * fd.tokensPerTorch;
+      const timeS = rooms * fd.timePerRoom;
+
+      totalExploreGold += gold * fd.reachProb; // expected value
+      totalExploreTime += timeS * fd.reachProb;
+      totalExploreTokens += tokens * fd.reachProb;
+      totalExploreBoxes += boxes * fd.reachProb;
+
+      allocations.push({
+        floor: f, exploreTorches, exploreRooms: rooms,
+        exploreTimeS: timeS, exploreGold: gold,
+        exploreBoxes: boxes, exploreTokens: tokens,
+        torchBudgetBefore: budgetBefore, torchBudgetAfter: torchBudget,
+        goldPerTorch: fd.goldPerTorch, decision,
+      });
+    }
+
+    // Print floor-by-floor plan IN TRAVERSAL ORDER
+    console.error("Floor-by-floor exploration plan (in traversal order):");
+    console.error(
+      "Floor".padStart(5) + " │ " +
+      "Budget".padStart(6) + " │ " +
+      "Rush".padStart(5) + " │ " +
+      "Explore".padStart(7) + " │ " +
+      "Rooms".padStart(5) + " │ " +
+      "Time".padStart(7) + " │ " +
+      "Gold".padStart(7) + " │ " +
+      "G/Torch".padStart(7) + " │ " +
+      "Remaining".padStart(9) + " │ " +
+      "Decision"
+    );
+    console.error("─".repeat(115));
+
+    for (const a of allocations) {
+      const rushT = (RUSH_TORCH_EVENTS[a.floor] ?? 14) * RUSH_OVERHEAD_FACTOR * (1 - preservation);
       console.error(
-        `  F${String(ev.floor).padStart(2)}: ${alloc.toFixed(0)} torches → ` +
-        `${rooms.toFixed(0)} rooms, ${(time / 60).toFixed(1)}min, ` +
-        `${boxes.toFixed(1)} boxes, ${tokens.toFixed(0)} tokens, ` +
-        `${(gold / 1e6).toFixed(2)}m gold`
+        `F${String(a.floor).padStart(3)} │ ` +
+        `${a.torchBudgetBefore.toFixed(0).padStart(6)} │ ` +
+        `${rushT.toFixed(0).padStart(5)} │ ` +
+        `${a.exploreTorches.toFixed(0).padStart(7)} │ ` +
+        `${a.exploreRooms.toFixed(0).padStart(5)} │ ` +
+        `${(a.exploreTimeS > 0 ? (a.exploreTimeS / 60).toFixed(1) + "m" : "-").padStart(7)} │ ` +
+        `${(a.exploreGold > 0 ? (a.exploreGold / 1e6).toFixed(2) + "m" : "-").padStart(7)} │ ` +
+        `${(a.goldPerTorch > 0 ? (a.goldPerTorch / 1e3).toFixed(0) + "k" : "-").padStart(7)} │ ` +
+        `${a.torchBudgetAfter.toFixed(0).padStart(9)} │ ` +
+        a.decision
       );
     }
 
@@ -687,12 +807,12 @@ if (bestStrategy) {
     const cycleWithExplore = totalTimeWithExplore / 60 + cooldownHours;
     const gphWithExplore = totalGoldWithExplore / cycleWithExplore;
 
-    console.error(`\nWith exploration:`);
+    console.error(`\nExpected exploration results (probability-weighted):`);
     console.error(`  Extra gold/run:      +${(totalExploreGold / 1e6).toFixed(2)}m (${totalExploreBoxes.toFixed(1)} boxes, ${totalExploreTokens.toFixed(0)} tokens)`);
     console.error(`  Extra time:          +${(totalExploreTime / 60).toFixed(1)} minutes`);
     console.error(`  Total gold/run:      ${(totalGoldWithExplore / 1e6).toFixed(2)}m`);
     console.error(`  Total run time:      ${totalTimeWithExplore.toFixed(1)} minutes`);
-    console.error(`  Gold per hour:       ${(gphWithExplore / 1e6).toFixed(2)}m (was ${(best.goldPerHour / 1e6).toFixed(2)}m)`);
+    console.error(`  Gold per hour:       ${(gphWithExplore / 1e6).toFixed(2)}m (was ${(best.goldPerHour / 1e6).toFixed(2)}m rush-only)`);
     console.error(`  Gold per day:        ${(gphWithExplore * 24 / 1e6).toFixed(1)}m (was ${(best.goldPerHour * 24 / 1e6).toFixed(1)}m)`);
   }
 
