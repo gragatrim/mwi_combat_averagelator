@@ -27,11 +27,10 @@ import { buildCrateBuffs, simulateLabyrinthFight, getLabyrinthMonsters, type Cra
 import { generateAnalysis } from "../src/features/labyrinthAnalyzer/index";
 import {
   FLOORS, FLOOR_EXIT_REWARDS, RUSH_TORCH_EVENTS, EXPERT_TORCH_PRESERVATION,
-  RUSH_OVERHEAD_FACTOR, BASE_SKILL_ACTION_TIME_MS, GRID_DIM, TREASURE_ROOM_COUNT,
-  LAB_UPGRADE_BASES, LAB_UPGRADE_PER_LEVEL, PERCOLATION_THRESHOLD,
+  RUSH_OVERHEAD_FACTOR, GRID_DIM, TREASURE_ROOM_COUNT,
+  LAB_UPGRADE_BASES, LAB_UPGRADE_PER_LEVEL,
 } from "../src/features/labyrinthAnalyzer/constants";
 import { getLabyrinthUpgradeLevels } from "../src/features/labyrinthAnalyzer/skillBuffs";
-import Buff from "../src/engine/buff";
 
 // =============================================================================
 // Chest values (current market prices)
@@ -39,6 +38,9 @@ import Buff from "../src/engine/buff";
 const COMBAT_CHEST_VALUE = 1_300_000;
 const SKILLING_CHEST_VALUE = 61_700;
 const REFINEMENT_CHEST_VALUE = 2_210_000;
+
+// Outside income benchmark for marginal analysis
+const OUTSIDE_GOLD_PER_HOUR = 10_000_000; // 10m/h opportunity cost
 
 // =============================================================================
 // Load data
@@ -437,7 +439,7 @@ console.error(
   "Gold/Run".padStart(10) + " │ " +
   "Gold/Hr".padStart(9) + " │ " +
   "Gold/Day".padStart(9) + " │ " +
-  "G/ActMin".padStart(9) + " │ " +
+  "G/ActHr".padStart(9) + " │ " +
   "Torches".padStart(7)
 );
 console.error("─".repeat(110));
@@ -463,7 +465,7 @@ for (let exitFloor = 5; exitFloor <= 15; exitFloor++) {
     `${(s.totalGold / 1e6).toFixed(2).padStart(8)}m │ ` +
     `${(s.goldPerHour / 1e6).toFixed(2).padStart(7)}m │ ` +
     `${(s.goldPerDay / 1e6).toFixed(1).padStart(7)}m │ ` +
-    `${(s.goldPerActiveMin / 1e6).toFixed(3).padStart(7)}m │ ` +
+    `${(s.goldPerActiveMin * 60 / 1e6).toFixed(1).padStart(7)}m │ ` +
     `${s.torchesUsed.toFixed(0).padStart(4)}/${torchCap}` +
     marker
   );
@@ -493,7 +495,7 @@ console.error(
   "CumTime".padStart(8) + " │ " +
   "FloorGold".padStart(10) + " │ " +
   "CumGold".padStart(10) + " │ " +
-  "Marginal G/m".padStart(12) + " │ " +
+  "Marginal G/h".padStart(12) + " │ " +
   "CumG/hr".padStart(8) + " │ " +
   "Decision"
 );
@@ -502,17 +504,14 @@ console.error("─".repeat(105));
 for (const fd of fullRun.floors) {
   // Compare: gold/hour if we stop HERE vs gold/hour if we stop at previous floor
   const stopHere = evaluateStrategy(fd.floor);
-  const stopPrev = fd.floor > 1 ? evaluateStrategy(fd.floor - 1) : null;
-  const marginalGPH = stopPrev
-    ? (stopHere.totalGold - stopPrev.totalGold) / (stopHere.cycleTimeHrs - stopPrev.cycleTimeHrs)
-    : stopHere.goldPerHour;
 
-  // Is it worth continuing? Compare marginal gold/hr to overall gold/hr
+  // Is it worth continuing? Compare marginal gold/hr to outside income
   let decision = "";
+  const marginalGPH = fd.marginalGoldPerMin * 60;
   if (fd.floor <= 7) decision = "✓ Fast clear";
-  else if (fd.marginalGoldPerMin * 60 > stopHere.goldPerHour * 0.8) decision = "✓ Worth it";
-  else if (fd.marginalGoldPerMin * 60 > stopHere.goldPerHour * 0.4) decision = "~ Marginal";
-  else decision = "✗ Diminishing returns";
+  else if (marginalGPH > OUTSIDE_GOLD_PER_HOUR * 1.5) decision = "✓ Worth it";
+  else if (marginalGPH > OUTSIDE_GOLD_PER_HOUR) decision = "~ Marginal (barely beats 10m/h outside)";
+  else decision = "✗ STOP — below 10m/h outside income";
 
   console.error(
     `F${String(fd.floor).padStart(3)} │ ` +
@@ -521,7 +520,7 @@ for (const fd of fullRun.floors) {
     `${(fd.cumulativeTimeMin.toFixed(0) + "m").padStart(8)} │ ` +
     `${(fd.totalGold / 1e6).toFixed(2).padStart(8)}m │ ` +
     `${(fd.cumulativeGold / 1e6).toFixed(2).padStart(8)}m │ ` +
-    `${(fd.marginalGoldPerMin / 1e6).toFixed(3).padStart(10)}m │ ` +
+    `${((fd.marginalGoldPerMin * 60) / 1e6).toFixed(1).padStart(10)}m │ ` +
     `${(stopHere.goldPerHour / 1e6).toFixed(2).padStart(6)}m │ ` +
     decision
   );
@@ -598,8 +597,12 @@ for (const sc of scenarios) {
   const s = evaluateStrategy(sc.floor);
   const isBest = s.targetFloor === bestGPH?.targetFloor;
   console.error(`${isBest ? "★ " : "  "}${sc.name} (F${sc.floor}):`);
-  console.error(`    Time: ${s.totalTimeMin.toFixed(0)} min (${(s.totalTimeMin / 60).toFixed(1)}h) | Gold/run: ${(s.totalGold / 1e6).toFixed(2)}m | Gold/hr: ${(s.goldPerHour / 1e6).toFixed(2)}m | Gold/day: ${(s.goldPerDay / 1e6).toFixed(1)}m | G/active-min: ${(s.goldPerActiveMin / 1e6).toFixed(3)}m`);
+  const activeGPH = s.goldPerActiveMin * 60;
+
+  const vsOutside = activeGPH > OUTSIDE_GOLD_PER_HOUR ? `✓ ${(activeGPH / OUTSIDE_GOLD_PER_HOUR).toFixed(1)}x outside` : `✗ below outside income`;
+  console.error(`    Time: ${s.totalTimeMin.toFixed(0)} min (${(s.totalTimeMin / 60).toFixed(1)}h) | Gold/run: ${(s.totalGold / 1e6).toFixed(2)}m | Gold/hr(cycle): ${(s.goldPerHour / 1e6).toFixed(2)}m | Gold/hr(active): ${(activeGPH / 1e6).toFixed(1)}m | ${vsOutside}`);
 }
 
-console.error("\nKey insight: With a " + cooldownHours + "h cooldown, the cycle time barely changes between strategies.");
-console.error("The question is whether the EXTRA HOURS of play for deeper floors generate enough gold to justify the time.");
+console.error(`\nOutside income benchmark: 10m/h`);
+console.error(`Key question: Does each extra floor earn more than 10m/h of active play time?`);
+console.error(`If not, you should exit the lab and go do other things.`);
