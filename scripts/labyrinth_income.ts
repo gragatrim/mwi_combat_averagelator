@@ -139,7 +139,7 @@ console.error("  Done.                    ");
 // Average failed room time ≈ 90s (mix of quick skill fails and full combat timeouts)
 
 const SKILL_ROOM_TIME_S = 10;
-const FAILED_ROOM_AVG_TIME_S = 90; // average time wasted on a room you can't clear
+const FAILED_ROOM_AVG_TIME_S = 120; // failed combat/skill rooms run the full 120s timeout
 const ROUTING_EFFICIENCY = 0.5;    // fraction of failures avoided by smart routing
 const FLOOR_TRANSITION_S = 5;
 
@@ -256,7 +256,18 @@ function getFloorExploreStats(floorNum: number): FloorExploreStats {
   const tokensPerTorch = tokensPerRoom / torchesPerRoom;
   const goldPerBox = (COMBAT_CHEST_VALUE + SKILLING_CHEST_VALUE) / 2;
   const avgCombatTime = getAvgCombatTime(midLevel);
-  const timePerRoom = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
+  const successTimePerRoom = (SKILL_ROOM_TIME_S + avgCombatTime) / 2;
+  // Account for retries on rooms with < 100% success probability.
+  // The game auto-skips rooms above the player's skip threshold (no time cost).
+  // But rooms below the threshold still have a success probability < 100% —
+  // e.g. a room at 60% success needs ~1.67 attempts on average.
+  // We use clearRate as a proxy for average per-attempt success probability:
+  // rooms near the threshold (~50% success) drag down the average, while
+  // rooms well below threshold (~100%) pull it up. For a uniform level
+  // distribution, clearRate approximates this blend well.
+  // Each failed attempt costs FAILED_ROOM_AVG_TIME_S (full 120s timeout).
+  const retriesPerRoom = clearRate < 1 ? (1 / clearRate - 1) : 0;
+  const timePerRoom = successTimePerRoom + retriesPerRoom * FAILED_ROOM_AVG_TIME_S;
 
   return {
     floor: floorNum, clearRate, roomsExplorable: reachable,
@@ -754,7 +765,11 @@ for (let rushTo = 0; rushTo <= AUTO_TARGET; rushTo++) {
   );
 }
 
-console.error(`\n★ Optimal automation: Rush floors 1-${bestAutoSetting}, Full Clear floors ${bestAutoSetting + 1}-${AUTO_TARGET}`);
+if (bestAutoSetting >= AUTO_TARGET) {
+  console.error(`\n★ Optimal automation: Rush all floors 1-${AUTO_TARGET} (no full clearing)`);
+} else {
+  console.error(`\n★ Optimal automation: Rush floors 1-${bestAutoSetting}, Full Clear floors ${bestAutoSetting + 1}-${AUTO_TARGET}`);
+}
 console.error(`  Active gold/h: ${(bestAutoGPH / 1e6).toFixed(1)}m`);
 
 // Final answer about low-floor exploration
