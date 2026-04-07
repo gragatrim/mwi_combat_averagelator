@@ -44,159 +44,145 @@
 <body>
 
 <h1>🏛️ Labyrinth Income Strategy</h1>
-<p class="sub">gragatrim — 2026-04-05 — combat 1.30m · skilling 61.7k · refinement 2.21m — calibrated to ~7h F15 runs (1.01×) — outside income: 10m/h</p>
+<p class="sub">gragatrim — 2026-04-05 — combat 1.30m · skilling 61.7k · refinement 2.21m — fixed 56h cooldown — outside income: 10m/h</p>
 
 <!-- ===== TL;DR ===== -->
 <div class="card hl">
   <h3 style="color:var(--gold);font-size:1.3rem;margin-bottom:.5rem">
-    ⭐ Exit at F13 · Rush all floors (no full clearing)
+    ⭐ Exit at F13 · Rush all floors (no full clearing) · ~610m per cycle
   </h3>
   <div class="row">
-    <div class="sb"><span class="big">24.7m/h</span><span class="lbl">Active gold/h (rush all)</span></div>
-    <div class="sb"><span class="big" style="color:var(--accent)">~84m</span><span class="lbl">Gold per run</span></div>
-    <div class="sb"><span class="big" style="color:var(--yellow)">~3.4h</span><span class="lbl">Active play time</span></div>
-    <div class="sb"><span class="big" style="color:var(--orange)">10m/h</span><span class="lbl">Outside income</span></div>
+    <div class="sb"><span class="big">610m</span><span class="lbl">Gold per 56h cycle (lab + outside)</span></div>
+    <div class="sb"><span class="big" style="color:var(--accent)">~84m</span><span class="lbl">Lab gold per run</span></div>
+    <div class="sb"><span class="big" style="color:var(--yellow)">~3.4h</span><span class="lbl">Active lab time</span></div>
+    <div class="sb"><span class="big" style="color:var(--orange)">52.6h</span><span class="lbl">Outside time (at 10m/h)</span></div>
   </div>
   <p style="color:var(--muted);font-size:.88rem;margin-top:.5rem">
-    Rush all floors 1–13 with no full clearing. Exploration isn't worth the time once you account for
-    <strong>room retry costs</strong> — rooms with &lt;100% success rate require multiple 120s attempts,
-    dragging exploration gold/h below your 10m/h outside income on every floor except F2–F7.
-    The 128 leftover torches go unspent — spending them on exploration would only earn 7–14m/h.
+    The lab is on a <strong>fixed 56h cooldown from entry</strong> — finishing faster doesn't start the next cycle sooner.
+    Every hour in the lab is an hour you <em>can't</em> earn outside income. So exploration is only worth it if it
+    earns more than 10m/h. With room retries factored in, no floor's exploration clears that bar reliably.
+    Rush everything, exit after F13, and spend the remaining 52.6h earning outside income.
   </p>
 </div>
 
+<!-- ===== KEY INSIGHT: FIXED COOLDOWN ===== -->
+<h2>⏱️ Fixed Cooldown Changes Everything</h2>
+
 <div class="warn">
-  <strong>⚠️ Key model update:</strong> Room retries now modeled. On floors with &lt;100% clear rate,
-  rooms above your skip threshold are attempted but may fail (costing 120s per retry).
-  E.g. F9 (68% clear rate) → each explored room averages ~98s including retries vs 38s without.
-  This makes exploration on hard floors much less efficient than previously estimated.
+  <strong>The cooldown is fixed at 56h from entry.</strong> Whether you spend 3h or 7h in the lab, your next run
+  starts at the same time. This means every extra minute exploring is a minute you <em>lose</em> from outside income.
+  The optimization isn't "maximize lab gold/h" — it's "maximize total gold per cycle":
+  <br><br>
+  <code style="font-size:1rem;color:var(--gold)">cycle_gold = lab_gold + (56h − active_time) × 10m/h</code>
+</div>
+
+<div class="card">
+  <h3>Why the margins are so tight</h3>
+  <p style="font-size:.92rem;margin-top:.5rem">
+    Exploration on F2–F7 earns 12–14m/h — only slightly above the 10m/h outside income.
+    Every hour of exploration gains ~2–4m extra gold over what you'd earn outside.
+    Over a 3-hour exploration session, that's only ~6–12m extra. The difference between
+    "Rush all" (610.2m/cycle) and "Rush 1-6, FC 7-13" (605.3m/cycle) is just <strong>5m per 56h cycle</strong>.
+  </p>
 </div>
 
 <!-- ===== AUTOMATION SETTING ===== -->
-<h2>🤖 Automation Setting: Rush Through Floor X</h2>
+<h2>🤖 Automation Setting: Cycle Gold Comparison</h2>
 
 <div class="info">
   The game lets you set "Rush to floor X, then Full Clear from X+1 onward."
-  <strong>Rush</strong> = beeline for exit (picks up revealed treasure on the way).
-  <strong>Full Clear</strong> = explore every reachable room for extra chests.
-  You can't mix — it's one threshold. Which floor should that threshold be?
+  But you can't mix — it's one threshold. <strong>Optimization: maximize lab_gold + outside_gold per fixed cycle.</strong>
 </div>
 
 <table>
-  <thead><tr><th>Setting</th><th>Full Clear</th><th>Torches</th><th>Explore Gold</th><th>Explore Time</th><th>Total Gold</th><th>Total Time</th><th>Active G/h</th><th></th></tr></thead>
+  <thead><tr><th>Setting</th><th>Full Clear</th><th>Torches</th><th>Lab Gold</th><th>Lab Time</th><th>Outside Time</th><th>Cycle Gold</th><th></th></tr></thead>
   <tbody>
-    <tr class="dim"><td>Full clear all</td><td>F1–F13</td><td>396/260</td><td>40.4m</td><td>+255m</td><td>124.8m</td><td>7.7h</td><td>16.3m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
-    <tr class="dim"><td>Rush 1–5</td><td>F6–F13</td><td>284/260</td><td>33.5m</td><td>+224m</td><td>117.9m</td><td>7.2h</td><td>16.5m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
-    <tr><td>Rush 1–6</td><td>F7–F13</td><td>244/260</td><td>29.3m</td><td>+205m</td><td>113.7m</td><td>6.8h</td><td style="color:var(--yellow)">16.6m</td><td><span class="badge ok">✓ Fits</span></td></tr>
-    <tr><td>Rush 1–7</td><td>F8–F13</td><td>204/260</td><td>24.3m</td><td>+182m</td><td>108.7m</td><td>6.5h</td><td style="color:var(--yellow)">16.8m</td><td><span class="badge ok">✓ Fits</span></td></tr>
-    <tr><td>Rush 1–8</td><td>F9–F13</td><td>176/260</td><td>19.7m</td><td>+149m</td><td>104.1m</td><td>5.9h</td><td style="color:var(--yellow)">17.6m</td><td><span class="badge ok">✓ Fits</span></td></tr>
-    <tr><td>Rush 1–9</td><td>F10–F13</td><td>159/260</td><td>15.4m</td><td>+113m</td><td>99.8m</td><td>5.3h</td><td style="color:var(--green)">18.8m</td><td><span class="badge ok">✓ Fits</span></td></tr>
-    <tr><td>Rush 1–10</td><td>F11–F13</td><td>147/260</td><td>11.0m</td><td>+78m</td><td>95.3m</td><td>4.7h</td><td style="color:var(--green)">20.2m</td><td><span class="badge ok">✓ Fits</span></td></tr>
-    <tr><td>Rush 1–11</td><td>F12–F13</td><td>140/260</td><td>6.8m</td><td>+49m</td><td>91.2m</td><td>4.2h</td><td style="color:var(--green)">21.6m</td><td><span class="badge ok">✓ Fits</span></td></tr>
-    <tr><td>Rush 1–12</td><td>F13 only</td><td>135/260</td><td>2.7m</td><td>+22m</td><td>87.1m</td><td>3.8h</td><td style="color:var(--green)">23.0m</td><td></td></tr>
-    <tr class="best"><td><strong>Rush all</strong></td><td><strong>None</strong></td><td>132/260</td><td>0</td><td>—</td><td>84.4m</td><td>3.4h</td><td style="color:var(--gold)"><strong>24.7m</strong></td><td><span class="badge star">⭐ Best active G/h</span></td></tr>
+    <tr class="dim"><td>Full clear all</td><td>F1–F13</td><td>396/260</td><td>124.8m</td><td>7.7h</td><td>48.3h</td><td>607.8m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
+    <tr class="dim"><td>Rush 1–5</td><td>F6–F13</td><td>284/260</td><td>117.9m</td><td>7.2h</td><td>48.8h</td><td>605.9m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
+    <tr><td>Rush 1–6</td><td>F7–F13</td><td>244/260</td><td>113.7m</td><td>6.8h</td><td>49.2h</td><td style="color:var(--green)">605.3m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–7</td><td>F8–F13</td><td>204/260</td><td>108.7m</td><td>6.5h</td><td>49.5h</td><td>604.2m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–8</td><td>F9–F13</td><td>176/260</td><td>104.1m</td><td>5.9h</td><td>50.1h</td><td>605.1m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–9</td><td>F10–F13</td><td>159/260</td><td>99.8m</td><td>5.3h</td><td>50.7h</td><td>606.8m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–10</td><td>F11–F13</td><td>147/260</td><td>95.3m</td><td>4.7h</td><td>51.3h</td><td>608.2m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–11</td><td>F12–F13</td><td>140/260</td><td>91.2m</td><td>4.2h</td><td>51.8h</td><td>608.9m</td><td><span class="badge ok">✓ Fits</span></td></tr>
+    <tr><td>Rush 1–12</td><td>F13 only</td><td>135/260</td><td>87.1m</td><td>3.8h</td><td>52.2h</td><td>609.2m</td><td></td></tr>
+    <tr class="best"><td><strong>Rush all</strong></td><td><strong>None</strong></td><td>132/260</td><td>84.4m</td><td>3.4h</td><td>52.6h</td><td style="color:var(--gold)"><strong>610.2m</strong></td><td><span class="badge star">⭐ Best cycle gold</span></td></tr>
   </tbody>
 </table>
 
 <div class="card hl">
   <h3 style="color:var(--gold)">✅ Rush all floors — don't full clear anything</h3>
   <p style="font-size:.92rem;margin-top:.5rem">
-    Once room retries are accounted for, <strong>no floor's exploration beats 24.7m/h</strong>.
-    Every minute spent full-clearing is a minute you could spend rushing to the exit and starting your next cooldown cycle.
-    You use only 132 of 260 torches — the 128 surplus aren't worth spending because exploration gold/h
-    (7–14m/h) is well below the rush-only rate.
+    "Rush all" wins at <strong>610.2m per cycle</strong>. The advantage is small (~5m over the next-best option)
+    because exploration gold/h on most floors is close to your 10m/h outside income. But since the game's
+    automation can only set a single threshold (not "FC some floors, rush others"), you can't selectively
+    full-clear only the profitable 100%-clear-rate floors (F2–F7) while rushing the expensive retry floors (F8+).
+  </p>
+  <p style="font-size:.92rem;margin-top:.5rem;color:var(--muted)">
+    Uses only 132 of 260 torches. The 128 surplus aren't worth spending — you'd spend more time in the lab
+    earning less than your 10m/h outside rate on the hard floors.
   </p>
 </div>
 
-<!-- ===== WHY EXPLORATION ISN'T WORTH IT ===== -->
-<h2>🔦 Why Exploration Isn't Worth It (Retry Cost)</h2>
+<!-- ===== EXPLORATION ANALYSIS ===== -->
+<h2>🔦 Exploration Gold/h by Floor (with retries)</h2>
 
 <div class="bench">
-  <strong>Your benchmark: 10m/h outside income.</strong> Exploration is only worth it if gold/h from exploring &gt; your rush-only rate (24.7m/h) or at least &gt; 10m/h.
+  <strong>Threshold: 10m/h outside income.</strong> Exploration only worth it if gold/h &gt; 10m/h.
+  On floors with &lt;100% clear rate, rooms near your skip threshold may need <strong>multiple 120s attempts</strong>.
 </div>
 
 <table>
-  <thead><tr><th>Floor</th><th>Clear%</th><th>Gold/Room</th><th>Time/Room</th><th>Retries/Room</th><th>Explore Gold/h</th><th></th><th>Worth it?</th></tr></thead>
+  <thead><tr><th>Floor</th><th>Clear%</th><th>Gold/Room</th><th>Time/Room</th><th>Retries/Room</th><th>Explore G/h</th><th></th></tr></thead>
   <tbody>
     <tr><td>F1</td><td>100%</td><td>12.9k</td><td>~7s</td><td>0</td><td style="color:var(--red)">7.1m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:29%"></div><div class="bar-label">7.1m</div></div></td>
-      <td><span class="badge bad">✗ Below outside</span></td></tr>
+      <td><span class="badge bad">✗ Below 10m/h</span></td></tr>
     <tr><td>F2</td><td>100%</td><td>28.0k</td><td>~8s</td><td>0</td><td style="color:var(--green)">12.1m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill y" style="width:49%"></div><div class="bar-label">12.1m</div></div></td>
-      <td><span class="badge warn">~ Marginal</span></td></tr>
+      <td><span class="badge ok">✓ Above 10m/h</span></td></tr>
     <tr><td>F3</td><td>100%</td><td>41.6k</td><td>~11s</td><td>0</td><td style="color:var(--green)">14.0m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill y" style="width:57%"></div><div class="bar-label">14.0m</div></div></td>
-      <td><span class="badge warn">~ Marginal</span></td></tr>
+      <td><span class="badge ok">✓ Above 10m/h</span></td></tr>
     <tr><td>F4</td><td>100%</td><td>53.7k</td><td>~14s</td><td>0</td><td style="color:var(--green)">14.2m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill y" style="width:57%"></div><div class="bar-label">14.2m</div></div></td>
-      <td><span class="badge warn">~ Marginal</span></td></tr>
+      <td><span class="badge ok">✓ Above 10m/h</span></td></tr>
     <tr><td>F5</td><td>100%</td><td>64.7k</td><td>~18s</td><td>0</td><td style="color:var(--green)">13.2m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill y" style="width:53%"></div><div class="bar-label">13.2m</div></div></td>
-      <td><span class="badge warn">~ Marginal</span></td></tr>
+      <td><span class="badge ok">✓ Above 10m/h</span></td></tr>
     <tr><td>F6</td><td>100%</td><td>85.0k</td><td>~23s</td><td>0</td><td style="color:var(--green)">13.5m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill y" style="width:55%"></div><div class="bar-label">13.5m</div></div></td>
-      <td><span class="badge warn">~ Marginal</span></td></tr>
+      <td><span class="badge ok">✓ Above 10m/h</span></td></tr>
     <tr><td>F7</td><td>100%</td><td>99.1k</td><td>~27s</td><td>0</td><td style="color:var(--green)">13.0m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill y" style="width:53%"></div><div class="bar-label">13.0m</div></div></td>
-      <td><span class="badge warn">~ Marginal</span></td></tr>
+      <td><span class="badge ok">✓ Above 10m/h</span></td></tr>
     <tr style="background:rgba(240,80,96,.04)"><td>F8</td><td>84%</td><td>131.4k</td><td>~57s</td><td>0.19</td><td style="color:var(--red)">8.4m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:34%"></div><div class="bar-label">8.4m</div></div></td>
-      <td><span class="badge bad">✗ Retries kill it</span></td></tr>
+      <td><span class="badge bad">✗ Retries drag below 10m/h</span></td></tr>
     <tr style="background:rgba(240,80,96,.04)"><td>F9</td><td>68%</td><td>197.4k</td><td>~98s</td><td>0.47</td><td style="color:var(--red)">7.2m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:29%"></div><div class="bar-label">7.2m</div></div></td>
-      <td><span class="badge bad">✗ Retries kill it</span></td></tr>
+      <td><span class="badge bad">✗ Retries drag below 10m/h</span></td></tr>
     <tr style="background:rgba(240,80,96,.04)"><td>F10</td><td>57%</td><td>295.6k</td><td>~140s</td><td>0.75</td><td style="color:var(--red)">7.6m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:31%"></div><div class="bar-label">7.6m</div></div></td>
-      <td><span class="badge bad">✗ Retries kill it</span></td></tr>
+      <td><span class="badge bad">✗ Retries drag below 10m/h</span></td></tr>
     <tr style="background:rgba(240,80,96,.04)"><td>F11</td><td>42%</td><td>517.8k</td><td>~222s</td><td>1.38</td><td style="color:var(--red)">8.4m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:34%"></div><div class="bar-label">8.4m</div></div></td>
-      <td><span class="badge bad">✗ Retries kill it</span></td></tr>
+      <td><span class="badge bad">✗ Retries drag below 10m/h</span></td></tr>
     <tr style="background:rgba(240,80,96,.04)"><td>F12</td><td>37%</td><td>680.9k</td><td>~261s</td><td>1.70</td><td style="color:var(--red)">9.4m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:38%"></div><div class="bar-label">9.4m</div></div></td>
-      <td><span class="badge bad">✗ Retries kill it</span></td></tr>
+      <td><span class="badge bad">✗ Retries drag below 10m/h</span></td></tr>
     <tr style="background:rgba(240,80,96,.04)"><td>F13</td><td>30%</td><td>680.9k</td><td>~337s</td><td>2.33</td><td style="color:var(--red)">7.3m/h</td>
-      <td><div class="bar-bg" style="width:120px"><div class="bar-fill r" style="width:30%"></div><div class="bar-label">7.3m</div></div></td>
-      <td><span class="badge bad">✗ Retries kill it</span></td></tr>
+      <td><span class="badge bad">✗ Retries drag below 10m/h</span></td></tr>
   </tbody>
 </table>
 
-<div class="card" style="border-color:var(--red)">
-  <h3>The Retry Problem</h3>
+<div class="card" style="border-color:var(--orange)">
+  <h3>The Automation Limitation</h3>
   <p style="font-size:.92rem;margin-top:.5rem">
-    On floors with &lt;100% clear rate, rooms above your skip threshold are attempted but may fail.
-    Each failed attempt costs <strong>120 seconds</strong> (full timeout). On F9 (68% clear rate),
-    you average <strong>0.47 retries per room</strong> — nearly doubling the time per room from 38s to 98s.
-    On F13 (30%), you average <strong>2.33 retries per room</strong> — each room takes 5+ minutes.
+    <strong>F2–F7 exploration earns 12–14m/h</strong> (above 10m/h) — these floors have 100% clear rate, zero retries.
+    <strong>F8+ exploration earns 7–9m/h</strong> (below 10m/h) — room retries at 120s each destroy the value.
   </p>
   <p style="font-size:.92rem;margin-top:.5rem">
-    The high gold per room on F11–F13 (518k–681k) <strong>can't compensate</strong> for the massive retry overhead.
-    Even F12's 681k/room at 261s/room = only 9.4m/h — below your outside income benchmark.
+    <strong>The ideal strategy would be</strong>: Full Clear F2–F7, Rush F8–F13. But the game only lets you set
+    a single rush threshold — you can't say "FC low floors, rush high floors."
+    Setting "Rush 1–1, FC 2–13" would force you to full-clear F8–F13 too, wasting time on retry-heavy floors.
+  </p>
+  <p style="font-size:.92rem;margin-top:.5rem">
+    So <strong>"Rush all" is the best automation setting</strong>, even though it leaves the F2–F7 value on the table.
+    If you wanted to manually full-clear F2–F7 while rushing F8+, you'd gain ~6m per cycle. Probably not worth the hassle.
   </p>
 </div>
 
-<!-- ===== F2-F7 EXPLORATION NOTE ===== -->
-<h2>💡 Exception: F2–F7 Exploration (100% Clear Rate)</h2>
-
-<div class="info">
-  Floors 2–7 have <strong>100% clear rate</strong> — no retries needed. Exploration on these floors
-  earns 12–14m/h, which is above your 10m/h outside income but well below the 24.7m/h rush-only rate.
-  Full clearing these floors costs extra time that could be spent finishing the run faster.
-</div>
-
-<div class="card">
-  <h3>When might F2–F7 exploration make sense?</h3>
-  <ul style="padding-left:1.25rem;font-size:.92rem;line-height:2">
-    <li>If you're <strong>already at F13 with torches to spare</strong> and have nothing else to do</li>
-    <li>If you <strong>value total gold per run</strong> over gold per hour (e.g., saving for a big purchase)</li>
-    <li>If you're <strong>token farming</strong> (exploration tokens on F2–F7 are decent at 139–162 tok/h)</li>
-  </ul>
-  <p style="font-size:.88rem;color:var(--muted);margin-top:.5rem">
-    But for pure gold/h efficiency: rush everything and exit.
-  </p>
-</div>
-
-<!-- ===== MARGINAL ANALYSIS ===== -->
-<h2>📊 F14–F15: Still Not Worth It</h2>
+<!-- ===== F14-F15 ===== -->
+<h2>📊 F14–F15: Not Worth It</h2>
 
 <table>
   <thead><tr><th>Floor</th><th>Time</th><th>Gold</th><th>Marginal G/h</th><th>vs 10m/h</th></tr></thead>
@@ -204,14 +190,13 @@
     <tr><td>F4–F13 (each)</td><td>3–74 min</td><td>0.7–19.2m</td><td style="color:var(--green)">13–46m/h</td><td>1.3–4.6×</td></tr>
     <tr style="background:rgba(240,192,64,.06)"><td><strong>F14</strong></td><td>107 min</td><td>18.9m</td><td style="color:var(--yellow)"><strong>10.6m/h</strong></td><td>1.1× — barely</td></tr>
     <tr style="background:rgba(240,80,96,.06)"><td><strong>F15</strong></td><td>134 min</td><td>20.6m</td><td style="color:var(--red)"><strong>9.2m/h</strong></td><td>0.9× — below outside</td></tr>
-    <tr style="font-weight:600;border-top:2px solid var(--border)"><td>F14+F15 combined</td><td>4.0 hours</td><td>39.5m</td><td style="color:var(--orange)">9.9m/h</td><td>Could earn ~40m outside instead</td></tr>
+    <tr style="font-weight:600;border-top:2px solid var(--border)"><td>F14+F15 combined</td><td>4.0 hours</td><td>39.5m</td><td style="color:var(--orange)">9.9m/h</td><td>You'd earn 40m outside in that time</td></tr>
   </tbody>
 </table>
 
 <div class="info">
-  With the retry model, F15 now takes <strong>~134 min</strong> (up from 93 min without retries) because
-  the 13% clear rate means massive retry overhead on the rush path. F15 marginal gold/h dropped to
-  <strong>9.2m/h — below your 10m/h outside income</strong>. Skip it.
+  With room retries, F15 rush takes <strong>~134 min</strong> (13% clear rate = massive rerouting overhead).
+  The marginal gold/h is <strong>9.2m — below your 10m/h outside income</strong>. Every minute on F15 loses you money vs leaving the lab.
 </div>
 
 <!-- ===== FINAL PLAN ===== -->
@@ -220,13 +205,14 @@
 <div class="card hl">
   <ol style="padding-left:1.25rem;font-size:.95rem;line-height:2.2">
     <li><strong>Set automation:</strong> Rush all floors (no full clearing)</li>
-    <li><strong>Let automation run F1–F13</strong> (rush everything)</li>
-    <li><strong>Exit the labyrinth after F13</strong></li>
-    <li><strong>Go do other things</strong> — F14–F15 earn ≤10.6m/h, basically equal to outside income</li>
+    <li><strong>Let automation run F1–F13</strong> (~3.4h)</li>
+    <li><strong>Exit after F13</strong> — F14–F15 earn ≤10.6m/h, not worth the time</li>
+    <li><strong>Spend remaining ~52.6h doing outside activities</strong> at 10m/h = ~526m</li>
   </ol>
   <p style="font-size:.88rem;color:var(--muted);margin-top:.75rem">
-    Expected: ~84m gold, ~3.4 hours active, 24.7m/h active. Uses 132/260 torches (128 surplus — not worth spending).<br>
-    Compare to your old F15 deep runs: 152m gold in 10.8h = 14.1m/h active. <strong>This is 75% more gold-efficient per hour played.</strong>
+    Expected per cycle: ~84m lab gold + ~526m outside gold = <strong>~610m total per 56h cycle</strong>.
+    Uses 132/260 torches. Cooldown is fixed — finishing in 3.4h instead of 6.8h doesn't help start sooner,
+    but it does give you 3.4 extra hours of outside income.
   </p>
 </div>
 
@@ -235,14 +221,15 @@
 
 <div class="info">
   Scrolls cost <strong>30 tokens</strong> each and boost outside income. If you're scroll-farming,
-  you want to maximize <strong>tokens per hour of active play</strong>.
+  you want to maximize <strong>tokens per hour of active play</strong> — but remember each hour of token farming
+  costs you 10m/h of outside income.
   You currently have <strong>2,096 tokens</strong> (69 scrolls worth).
 </div>
 
 <h3>Exploration Tokens Per Hour (by floor)</h3>
 <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">
-  Higher floors give more tokens per room, but retries drag down the token/h rate on hard floors.
-  F3–F7 (100% clear) are actually the most time-efficient for farming exploration tokens.
+  F3–F7 (100% clear) give the best tok/h because there are no retries.
+  Higher floors have more tokens per room but retries destroy the rate.
 </p>
 
 <table>
@@ -267,36 +254,36 @@
 <h3>Strategy Comparison: Gold vs Tokens</h3>
 
 <table>
-  <thead><tr><th>Strategy</th><th>Torches</th><th>Tokens</th><th>Scrolls</th><th>Time</th><th>Tok/h</th><th>Gold</th><th>G/h</th><th></th></tr></thead>
+  <thead><tr><th>Strategy</th><th>Torches</th><th>Tokens</th><th>Scrolls</th><th>Lab Time</th><th>Tok/h</th><th>Lab Gold</th><th>Cycle Gold</th><th></th></tr></thead>
   <tbody>
-    <tr class="best"><td><strong>Rush all F1–13 (gold-optimal)</strong></td><td>132/260</td><td>455</td><td>15.2</td><td>3.4h</td><td>134/h</td><td>84.4m</td><td style="color:var(--gold)"><strong>24.7m</strong></td><td><span class="badge star">⭐ Best G/h</span></td></tr>
-    <tr><td>Rush 1–10, FC 11–13</td><td>147/260</td><td>615</td><td>20.5</td><td>4.7h</td><td style="color:var(--accent)"><strong>131/h</strong></td><td>95.3m</td><td>20.2m</td><td><span class="badge ok">+5 scrolls for +1.3h</span></td></tr>
-    <tr><td>Rush 1–8, FC 9–13</td><td>176/260</td><td>737</td><td>24.6</td><td>5.9h</td><td>125/h</td><td>104.1m</td><td>17.6m</td><td></td></tr>
-    <tr><td>Rush 1–6, FC 7–13</td><td>244/260</td><td>852</td><td>28.4</td><td>6.8h</td><td>125/h</td><td>113.7m</td><td>16.6m</td><td><span class="badge ok">Most tok that fits</span></td></tr>
-    <tr class="dim"><td>Full clear all F1–13</td><td>396/260</td><td>979</td><td>32.6</td><td>7.7h</td><td>128/h</td><td>124.8m</td><td>16.3m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
-    <tr><td>Push to F15 (Rush 1–10, FC 11–15)</td><td>171/260</td><td>780</td><td>26.0</td><td>8.7h</td><td>89/h</td><td>134.8m</td><td>15.4m</td><td></td></tr>
+    <tr class="best"><td><strong>Rush all F1–13</strong></td><td>132/260</td><td>455</td><td>15.2</td><td>3.4h</td><td>133/h</td><td>84.4m</td><td style="color:var(--gold)"><strong>610m</strong></td><td><span class="badge star">⭐ Best gold/cycle</span></td></tr>
+    <tr><td>Rush 1–10, FC 11–13</td><td>147/260</td><td>615</td><td>20.5</td><td>4.7h</td><td>131/h</td><td>95.3m</td><td>608m</td><td><span class="badge ok">+5 scrolls, −2m/cycle</span></td></tr>
+    <tr><td>Rush 1–8, FC 9–13</td><td>176/260</td><td>737</td><td>24.6</td><td>5.9h</td><td>125/h</td><td>104.1m</td><td>605m</td><td></td></tr>
+    <tr><td>Rush 1–6, FC 7–13</td><td>244/260</td><td>852</td><td>28.4</td><td>6.8h</td><td>125/h</td><td>113.7m</td><td>605m</td><td><span class="badge ok">Most tok that fits</span></td></tr>
+    <tr class="dim"><td>Full clear all F1–13</td><td>396/260</td><td>979</td><td>32.6</td><td>7.7h</td><td>128/h</td><td>124.8m</td><td>608m</td><td><span class="badge bad">✗ Over torch cap</span></td></tr>
+    <tr><td>Push to F15 (Rush 1–10)</td><td>171/260</td><td>780</td><td>26.0</td><td>8.7h</td><td>89/h</td><td>134.8m</td><td>608m</td><td></td></tr>
   </tbody>
 </table>
 
 <div class="card" style="border-color:var(--accent)">
-  <h3 style="color:var(--accent)">Token Optimization Takeaways</h3>
+  <h3 style="color:var(--accent)">Token Takeaways</h3>
   <ul style="padding-left:1.25rem;font-size:.92rem;line-height:2">
-    <li><strong>Exit tokens dominate exploration tokens.</strong> Each floor exit gives 5 more tokens than the last (F8=40, F13=65, F15=75). Just reaching F13 gives 455 tokens from exits alone.</li>
-    <li><strong>Rush-only gives 134 tok/h</strong> — surprisingly competitive because you're not wasting time on low-tok/h exploration with retries.</li>
-    <li><strong>Best total tokens that fits torch cap:</strong> Rush 1–6, FC 7–13 gives <strong>852 tokens (28.4 scrolls)</strong> using 244/260 torches, but costs 6.8h and only 16.6m gold/h.</li>
-    <li><strong>Pushing F15 for tokens is inefficient.</strong> F14–F15 take 4+ extra hours at only ~89 tok/h.</li>
-    <li><strong>If you need scrolls:</strong> FC on F3–F7 (100% clear) gives 148–162 tok/h with no retries. Use surplus torches there.</li>
+    <li><strong>Exit tokens dominate.</strong> Just rushing to F13 gives 455 tokens (15.2 scrolls) from exit rewards alone.</li>
+    <li><strong>All strategies give ~605–610m cycle gold.</strong> The gold differences are tiny. Choose based on how many scrolls you need.</li>
+    <li><strong>If you need scrolls:</strong> "Rush 1–6, FC 7–13" gives <strong>852 tokens (28.4 scrolls)</strong> per run, costs only 5m/cycle in gold.</li>
+    <li><strong>Best tok/h for exploration: F3–F4</strong> at 161–162 tok/h (100% clear, no retries).</li>
+    <li><strong>Pushing F15 is never worth it</strong> — adds 8.7h of lab time for only 780 tokens, terrible tok/h.</li>
   </ul>
 </div>
 
 <div class="info">
-  <strong>Recommendation:</strong> Stick with <strong>Rush all, exit F13</strong> for maximum gold/h.
-  If you need scrolls, the 455 exit tokens (15.2 scrolls) per run are already decent.
-  For more scrolls, full-clear F3–F7 with surplus torches — adds ~175 tokens (+6 scrolls) in ~65 min at 161 tok/h.
+  <strong>Bottom line:</strong> All strategies give nearly the same cycle gold (~605–610m).
+  If you just want gold, rush everything. If you want scrolls, FC 7–13 for +400 tokens at minimal gold cost.
+  The fixed cooldown means there's no "hurry to finish" benefit — it's purely about whether exploration beats 10m/h.
 </div>
 
 <div class="footer">
-  Generated by <code>scripts/labyrinth_income.ts</code> · Calibrated to ~7h F15 runs (1.01×) · Room retries: 120s per fail · Outside benchmark: 10m/h<br>
+  Generated by <code>scripts/labyrinth_income.ts</code> · Fixed 56h cooldown · Room retries: 120s per fail · Outside benchmark: 10m/h<br>
   <code>npx tsx scripts/labyrinth_income.ts live_data/gragatrim_full_char_data.json</code>
 </div>
 </body>

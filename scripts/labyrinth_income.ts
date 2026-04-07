@@ -403,12 +403,17 @@ function evaluateStrategy(targetFloor: number): StrategyResult {
     });
   }
 
-  const cycleTimeHrs = cumTimeMin / 60 + cooldownHours;
+  // Cooldown is fixed from entry — active time is part of the cooldown, not added to it.
+  // Remaining cooldown time can be spent earning outside income.
+  // Total cycle gold = lab_gold + (cooldown - active_time) * outside_gph
+  const cycleTimeHrs = cooldownHours; // fixed — finishing faster doesn't start next cycle sooner
+  const outsideTimeHrs = Math.max(0, cooldownHours - cumTimeMin / 60);
+  const cycleGoldWithOutside = cumGold + outsideTimeHrs * OUTSIDE_GOLD_PER_HOUR;
   return {
     targetFloor, floors,
     totalTimeMin: cumTimeMin, totalGold: cumGold,
-    cycleTimeHrs, goldPerHour: cumGold / cycleTimeHrs,
-    goldPerDay: (cumGold / cycleTimeHrs) * 24,
+    cycleTimeHrs, goldPerHour: cycleGoldWithOutside / cycleTimeHrs,
+    goldPerDay: (cycleGoldWithOutside / cycleTimeHrs) * 24,
     goldPerActiveMin: cumTimeMin > 0 ? cumGold / cumTimeMin : 0,
     totalCombatChests: totalCombat, totalRefinementChests: totalRefine,
     totalTokens, torchesUsed: torchCap - torchBudget,
@@ -692,7 +697,7 @@ for (let f = 1; f <= AUTO_TARGET; f++) {
 }
 
 // Now: evaluate each possible rush threshold
-console.error("\nAutomation setting comparison (Rush F1..X, Full Clear F(X+1)..F13):");
+console.error(`\nAutomation setting comparison (Rush F1..X, Full Clear F(X+1)..F13) — fixed ${cooldownHours}h cooldown:`);
 console.error(
   "Setting".padStart(12) + " │ " +
   "Rush".padStart(8) + " │ " +
@@ -700,12 +705,13 @@ console.error(
   "Torches".padStart(7) + " │ " +
   "ExplGold".padStart(9) + " │ " +
   "ExplTime".padStart(8) + " │ " +
-  "TotalGold".padStart(10) + " │ " +
-  "TotalTime".padStart(9) + " │ " +
+  "LabGold".padStart(10) + " │ " +
+  "LabTime".padStart(9) + " │ " +
+  "CycleGold".padStart(9) + " │ " +
   "ActiveG/h".padStart(9) + " │ " +
   "Fit?"
 );
-console.error("─".repeat(115));
+console.error("─".repeat(130));
 
 // Base: rush-only gold from exit rewards for F1-F13
 // Rush-only strategy computation handled below via manual calculation
@@ -721,7 +727,7 @@ for (let f = 1; f <= AUTO_TARGET; f++) {
 }
 
 let bestAutoSetting = -1;
-let bestAutoGPH = 0;
+let bestCycleGold = 0;
 
 for (let rushTo = 0; rushTo <= AUTO_TARGET; rushTo++) {
   // Rush floors 1..rushTo, full clear floors rushTo+1..AUTO_TARGET
@@ -737,18 +743,21 @@ for (let rushTo = 0; rushTo <= AUTO_TARGET; rushTo++) {
   }
 
   const fits = totalTorches <= torchCap;
-  const totalGold = baseExitGold + totalExplGold;
+  const totalLabGold = baseExitGold + totalExplGold;
   const totalTimeMin = baseRushTimeMin + totalExplTimeMin;
-  const activeGPH = totalTimeMin > 0 ? (totalGold / totalTimeMin) * 60 : 0;
+  // Fixed cooldown: active time is part of cooldown. Remaining time earns outside income.
+  const outsideTimeHrs = Math.max(0, cooldownHours - totalTimeMin / 60);
+  const cycleGold = totalLabGold + outsideTimeHrs * OUTSIDE_GPH;
+  const activeGPH = totalTimeMin > 0 ? (totalLabGold / totalTimeMin) * 60 : 0;
 
-  if (fits && activeGPH > bestAutoGPH) {
-    bestAutoGPH = activeGPH;
+  if (fits && cycleGold > bestCycleGold) {
+    bestCycleGold = cycleGold;
     bestAutoSetting = rushTo;
   }
 
   const rushLabel = rushTo === 0 ? "Full clear all" : `Rush 1-${rushTo}`;
   const fullLabel = rushTo >= AUTO_TARGET ? "(none)" : `FC ${rushTo + 1}-${AUTO_TARGET}`;
-  const marker = fits && activeGPH > bestAutoGPH ? " ★" : "";
+  const marker = fits && cycleGold >= bestCycleGold ? " ★" : "";
 
   console.error(
     `${rushLabel.padStart(12)} │ ` +
@@ -757,8 +766,9 @@ for (let rushTo = 0; rushTo <= AUTO_TARGET; rushTo++) {
     `${totalTorches.toFixed(0).padStart(4)}/${torchCap} │ ` +
     `${(totalExplGold / 1e6).toFixed(2).padStart(7)}m │ ` +
     `${(totalExplTimeMin.toFixed(0) + "m").padStart(8)} │ ` +
-    `${(totalGold / 1e6).toFixed(2).padStart(8)}m │ ` +
+    `${(totalLabGold / 1e6).toFixed(2).padStart(8)}m │ ` +
     `${(totalTimeMin.toFixed(0) + "m").padStart(9)} │ ` +
+    `${(cycleGold / 1e6).toFixed(1).padStart(7)}m │ ` +
     `${(activeGPH / 1e6).toFixed(1).padStart(7)}m │ ` +
     `${fits ? "✓" : "✗ OVER"}` +
     marker
@@ -770,7 +780,7 @@ if (bestAutoSetting >= AUTO_TARGET) {
 } else {
   console.error(`\n★ Optimal automation: Rush floors 1-${bestAutoSetting}, Full Clear floors ${bestAutoSetting + 1}-${AUTO_TARGET}`);
 }
-console.error(`  Active gold/h: ${(bestAutoGPH / 1e6).toFixed(1)}m`);
+console.error(`  Cycle gold (lab + outside): ${(bestCycleGold / 1e6).toFixed(1)}m per ${cooldownHours}h cycle`);
 
 // Final answer about low-floor exploration
 console.error("\n==========================================");
@@ -892,12 +902,12 @@ interface TokenStrategy {
 }
 
 const tokenStrats: TokenStrategy[] = [
-  { name: "Gold-optimal (Rush 1-10, FC 11-13)", rushTo: 10, targetFloor: 13 },
+  { name: "Rush all F1-13 (gold-optimal)", rushTo: 13, targetFloor: 13 },
+  { name: "Rush 1-10, FC 11-13", rushTo: 10, targetFloor: 13 },
   { name: "Rush 1-8, FC 9-13", rushTo: 8, targetFloor: 13 },
   { name: "Rush 1-6, FC 7-13", rushTo: 6, targetFloor: 13 },
   { name: "Full clear all F1-13", rushTo: 0, targetFloor: 13 },
   { name: "Rush 1-10, FC 11-15 (deep)", rushTo: 10, targetFloor: 15 },
-  { name: "Gold-optimal + push F15", rushTo: 10, targetFloor: 15 },
 ];
 
 console.error(
