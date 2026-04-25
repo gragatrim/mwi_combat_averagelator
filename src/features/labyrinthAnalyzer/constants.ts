@@ -9,27 +9,47 @@ export const PROCESSING_SKILLS = new Set([
   "cheesesmithing", "crafting", "tailoring", "cooking", "brewing", "alchemy",
 ]);
 
-export const SKILL_SEAL_BUFFS = {
-  efficiency: 0.14,
-  actionSpeed: 0.15,
-  gathering: 0.18,
-};
-
 export const BASE_SKILL_ACTION_TIME_MS = 10000;
 export const BASE_ENHANCING_ACTION_TIME_MS = 8000;
 export const TIME_LIMIT_MS = 120000;
 
 export const LAB_UPGRADE_BASES: Record<string, number> = {
-  torch: 100, shroud: 4, beacon: 5, cooldown: 72,
+  torch: 100, shroud: 4, beacon: 5, cooldown: 72, fullAuto: 0,
+  skillSpeed: 0, skillEfficiency: 0, skillSuccess: 0, skillDoubleProgress: 0,
+  combatDamage: 0, attackSpeed: 0, castSpeed: 0, criticalRate: 0, experience: 0,
 };
 export const LAB_UPGRADE_PER_LEVEL: Record<string, number> = {
-  torch: 20, shroud: 1, beacon: 1, cooldown: -4,
+  torch: 20, shroud: 1, beacon: 1, cooldown: -4, fullAuto: 1,
+  skillSpeed: 0.01, skillEfficiency: 0.01, skillSuccess: 0.005, skillDoubleProgress: 0.01,
+  combatDamage: 0.01, attackSpeed: 0.01, castSpeed: 0.01, criticalRate: 0.01, experience: 0.01,
 };
 export const LAB_UPGRADE_MAX_LEVEL: Record<string, number> = {
-  torch: 15, shroud: 8, beacon: 5, cooldown: 6,
+  torch: 15, shroud: 8, beacon: 10, cooldown: 6, fullAuto: 15,
+  skillSpeed: 12, skillEfficiency: 12, skillSuccess: 12, skillDoubleProgress: 12,
+  combatDamage: 12, attackSpeed: 12, castSpeed: 12, criticalRate: 12, experience: 12,
 };
+// Cost for next level = base * nextLevel. Verified from in-game upgrade panel.
 export const LAB_UPGRADE_COST_PER_LEVEL: Record<string, number> = {
-  torch: 100, shroud: 80, beacon: 60, cooldown: 600, // Updated from 800 based on game data verification
+  torch: 100, shroud: 80, beacon: 60, cooldown: 600, fullAuto: 30,
+  skillSpeed: 40, skillEfficiency: 40, skillSuccess: 40, skillDoubleProgress: 40,
+  combatDamage: 40, attackSpeed: 40, castSpeed: 40, criticalRate: 40, experience: 80,
+};
+
+export const LAB_UPGRADE_DISPLAY: Record<string, { name: string; category: "capacity" | "skill" | "combat" | "qol"; unit: string }> = {
+  torch:               { name: "Torch Capacity",         category: "capacity", unit: "T"   },
+  shroud:              { name: "Shroud Capacity",        category: "capacity", unit: "S"   },
+  beacon:              { name: "Beacon Capacity",        category: "capacity", unit: "B"   },
+  cooldown:            { name: "Cooldown Reduction",     category: "capacity", unit: "h"   },
+  fullAuto:            { name: "Full-Auto Floor",        category: "qol",      unit: "fl"  },
+  skillSpeed:          { name: "Skilling Speed",         category: "skill",    unit: "%"   },
+  skillEfficiency:     { name: "Skilling Efficiency",    category: "skill",    unit: "%"   },
+  skillSuccess:        { name: "Skilling Success Rate",  category: "skill",    unit: "%"   },
+  skillDoubleProgress: { name: "Skilling Double Progress",category: "skill",   unit: "%"   },
+  combatDamage:        { name: "Combat Damage",          category: "combat",   unit: "%"   },
+  attackSpeed:         { name: "Attack Speed",           category: "combat",   unit: "%"   },
+  castSpeed:           { name: "Cast Speed",             category: "combat",   unit: "%"   },
+  criticalRate:        { name: "Critical Rate",          category: "combat",   unit: "%"   },
+  experience:          { name: "Experience",             category: "qol",      unit: "%"   },
 };
 
 /** Floor definitions: [floorNum, minLevel, maxLevel, gridStr] */

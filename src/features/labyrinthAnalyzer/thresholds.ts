@@ -8,8 +8,6 @@ import {
   BASE_SKILL_ACTION_TIME_MS,
   BASE_ENHANCING_ACTION_TIME_MS,
   LABYRINTH_SKILL_NAMES,
-  SKILL_SEAL_BUFFS,
-  GATHERING_SKILLS,
 } from "./constants";
 import { calcSkillRoomProb, calcEnhancingRoomProb, estimateSuccessRate } from "./markovChain";
 import { computeSkillBuffs } from "./skillBuffs";
@@ -66,8 +64,7 @@ export function computeAllSkillThresholds(
   charData: RawCharData,
   gameData: GameData,
   baseLevels: Record<string, number>,
-  skipSkills: [string, string, number][] | null,
-  withSeals: boolean = false
+  skipSkills: [string, string, number][] | null
 ): SkillRoomData[] {
   const results: SkillRoomData[] = [];
 
@@ -85,14 +82,8 @@ export function computeAllSkillThresholds(
     const base = baseLevels[hrid] ?? 0;
     if (base === 0) continue;
 
+    // Seals are intentionally not applied — they have no effect in labyrinth.
     const buffs = computeSkillBuffs(skillName, charData, gameData);
-    if (withSeals) {
-      buffs.efficiency += SKILL_SEAL_BUFFS.efficiency;
-      buffs.actionSpeed += SKILL_SEAL_BUFFS.actionSpeed;
-      if (GATHERING_SKILLS.has(skillName)) {
-        buffs.dpChance += SKILL_SEAL_BUFFS.gathering;
-      }
-    }
 
     const calcMc = computeMaxClearableLevel(skillName, buffs, base);
     const eff = base + buffs.levelBoost;

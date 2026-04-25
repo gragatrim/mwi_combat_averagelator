@@ -15,8 +15,6 @@ export interface SkillRoomData {
   /** In-game threshold for comparison (when source is "calculated") */
   igThreshold?: number;
   igMaxClearable?: number;
-  /** Max clearable with seals active (when current analysis is without seals) */
-  maxClearableWithSeals?: number;
 }
 
 /** Per-combat room analysis data */
@@ -85,14 +83,23 @@ export interface TorchBudgetEntry {
   advice: string;
 }
 
+/** Labyrinth upgrade type identifier (matches keys in LAB_UPGRADE_* maps). */
+export type UpgradeType =
+  | "torch" | "shroud" | "beacon" | "cooldown" | "fullAuto"
+  | "skillSpeed" | "skillEfficiency" | "skillSuccess" | "skillDoubleProgress"
+  | "combatDamage" | "attackSpeed" | "castSpeed" | "criticalRate" | "experience";
+
+export type UpgradeCategory = "capacity" | "skill" | "combat" | "qol";
+
 /** Upgrade priority entry */
 export interface UpgradePriorityEntry {
-  type: "torch" | "shroud" | "beacon" | "cooldown";
+  type: UpgradeType;
   level: number;
   cost: number;
   deltaBoxesMonth: number;
   valuePerToken: number;
   description: string;
+  category: UpgradeCategory;
 }
 
 /** Labyrinth upgrade levels */
@@ -101,6 +108,16 @@ export interface UpgradeLevels {
   shroud: number;
   beacon: number;
   cooldown: number;
+  fullAuto: number;
+  skillSpeed: number;
+  skillEfficiency: number;
+  skillSuccess: number;
+  skillDoubleProgress: number;
+  combatDamage: number;
+  attackSpeed: number;
+  castSpeed: number;
+  criticalRate: number;
+  experience: number;
   points: number;
 }
 

@@ -89,7 +89,6 @@ for (const label of ["WITH_INV", "NO_INV"]) {
     "/monsters/pyre_hunter",
     LEVEL,
     crateBuffs,
-    [], // no seals (game logs show no seal buffs)
     0,
     gameData,
     label === "WITH_INV" ? 120e9 : 120e9  // full fight

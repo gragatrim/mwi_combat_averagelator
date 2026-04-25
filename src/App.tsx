@@ -11,6 +11,7 @@ import { defaultPlayerBonus } from "./hooks/useSimulation";
 import { useLabyrinth } from "./hooks/useLabyrinth";
 import { useZoneRanking } from "./hooks/useZoneRanking";
 import type { CrateTier } from "./features/labyrinthSimulator";
+import type { LabyrinthUpgradeState } from "./data/fullCharacterData";
 import Header from "./components/layout/Header";
 import PlayerImport from "./components/player/PlayerImport";
 import PlayerLoadout from "./components/player/PlayerLoadout";
@@ -62,17 +63,7 @@ function App() {
   });
   const [labXpBonuses, setLabXpBonuses] = useState<XpBonusSettings>({
     communityBuffLevel: 0,
-    playerBonuses: [{
-      ...defaultPlayerBonus(),
-      seals: {
-        attackSpeed: true,
-        castSpeed: true,
-        damage: true,
-        criticalRate: true,
-        combatDrop: false,
-        wisdom: false,
-      },
-    }],
+    playerBonuses: [defaultPlayerBonus()],
   });
 
   const primaryConfig = playerConfigs[0] ?? null;
@@ -129,12 +120,13 @@ function App() {
       monsterLoadoutMap: Record<string, PlayerConfig>,
       successRate: number,
       loadoutNameMap: Record<string, string>,
-      defaultLoadoutName: string
+      defaultLoadoutName: string,
+      labUpgrades: LabyrinthUpgradeState | null
     ) => {
       if (!gameData) return;
       setLabLoadoutNameMap(loadoutNameMap);
       setLabDefaultLoadoutName(defaultLoadoutName);
-      runLabyrinth(defaultConfig, coffeeCrate, foodCrate, labXpBonuses, gameData, monsterLoadoutMap, successRate);
+      runLabyrinth(defaultConfig, coffeeCrate, foodCrate, labXpBonuses, gameData, monsterLoadoutMap, successRate, labUpgrades);
     },
     [labXpBonuses, gameData, runLabyrinth]
   );
@@ -346,6 +338,7 @@ function App() {
                   settings={labXpBonuses}
                   onChange={setLabXpBonuses}
                   playerNames={["Labyrinth Player"]}
+                  hideSeals
                 />
               </>
             )}
@@ -507,7 +500,6 @@ function App() {
                     defaultLoadoutName={labDefaultLoadoutName}
                     rawCharData={labRawCharData}
                     gameData={gameData}
-                    withSeals={labXpBonuses.playerBonuses[0]?.seals?.wisdom ?? false}
                   />
                 )}
 

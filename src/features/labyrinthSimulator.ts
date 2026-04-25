@@ -294,6 +294,47 @@ export function buildCrateBuffs(
 }
 
 // =============================================================================
+// Permanent Labyrinth Upgrade Buffs
+// =============================================================================
+// Token-purchased upgrades visible in the lab UI. Each level grants a flat or
+// ratio buff that applies for the duration of every lab fight.
+
+export interface LabyrinthUpgradeLevels {
+  combatDamage: number;
+  attackSpeed: number;
+  castSpeed: number;
+  criticalRate: number;
+  experience: number;
+}
+
+export function buildLabyrinthUpgradeBuffs(levels: Partial<LabyrinthUpgradeLevels> | null | undefined): Buff[] {
+  if (!levels) return [];
+  const make = (key: string, typeHrid: string, flatBoost: number, ratioBoost: number): Buff =>
+    new Buff({
+      uniqueHrid: `/buff_uniques/labyrinth_upgrade_${key}`,
+      typeHrid,
+      flatBoost,
+      flatBoostLevelBonus: 0,
+      ratioBoost,
+      ratioBoostLevelBonus: 0,
+      startTime: 0,
+      duration: 0,
+    });
+  const buffs: Buff[] = [];
+  if ((levels.combatDamage ?? 0) > 0)
+    buffs.push(make("combat_damage", "/buff_types/damage", 0, 0.01 * (levels.combatDamage ?? 0)));
+  if ((levels.attackSpeed ?? 0) > 0)
+    buffs.push(make("attack_speed", "/buff_types/attack_speed", 0, 0.01 * (levels.attackSpeed ?? 0)));
+  if ((levels.castSpeed ?? 0) > 0)
+    buffs.push(make("cast_speed", "/buff_types/cast_speed", 0.01 * (levels.castSpeed ?? 0), 0));
+  if ((levels.criticalRate ?? 0) > 0)
+    buffs.push(make("critical_rate", "/buff_types/critical_rate", 0.01 * (levels.criticalRate ?? 0), 0));
+  if ((levels.experience ?? 0) > 0)
+    buffs.push(make("experience", "/buff_types/combat_experience", 0.01 * (levels.experience ?? 0), 0));
+  return buffs;
+}
+
+// =============================================================================
 // Player Deps Builder (same as useSimulation)
 // =============================================================================
 
@@ -333,7 +374,6 @@ export function simulateLabyrinthFight(
   monsterHrid: string,
   targetLevel: number,
   crateBuffs: Buff[],
-  sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
   timeLimitNs: number = LABYRINTH_TIME_LIMIT_NS
@@ -342,8 +382,8 @@ export function simulateLabyrinthFight(
   const deps = buildPlayerDeps(gameData);
   const player = Player.createFromDTO(playerConfig, gameData, deps);
 
-  // Apply crate buffs + seal buffs as extra buffs
-  player.extraBuffs = [...crateBuffs, ...sealBuffs];
+  // Seals are intentionally not applied — they have no effect in labyrinth.
+  player.extraBuffs = [...crateBuffs];
   player.wisdomBuffBonus = wisdomBuffBonus;
 
   // Clear consumables - labyrinth only uses crate buffs
@@ -396,7 +436,6 @@ export function findMaxLabyrinthLevel(
   playerConfig: PlayerConfig,
   monsterHrid: string,
   crateBuffs: Buff[],
-  sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
   maxLevel: number = 360,
@@ -418,7 +457,6 @@ export function findMaxLabyrinthLevel(
       monsterHrid,
       mid,
       crateBuffs,
-      sealBuffs,
       wisdomBuffBonus,
       gameData
     );
@@ -445,7 +483,6 @@ export function findMaxLabyrinthLevel(
       monsterHrid,
       adjustedLevel,
       crateBuffs,
-      sealBuffs,
       wisdomBuffBonus,
       gameData
     );
@@ -536,7 +573,6 @@ export function getLabyrinthMonsters(gameData: GameData): string[] {
 export function findAllLabyrinthLevels(
   defaultPlayerConfig: PlayerConfig,
   crateBuffs: Buff[],
-  sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
   maxLevel: number = 360,
@@ -554,7 +590,6 @@ export function findAllLabyrinthLevels(
       playerConfig,
       monsterHrid,
       crateBuffs,
-      sealBuffs,
       wisdomBuffBonus,
       gameData,
       maxLevel,

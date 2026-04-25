@@ -35,13 +35,11 @@ type RawCharData = Record<string, any>;
  * @param rawCharData Raw character JSON (the full init_character_data)
  * @param simResults Combat sim results from the averagelator (can be null)
  * @param gameData The game data from init_client_data.json
- * @param withSeals Whether to include skilling seal buffs
  */
 export function generateAnalysis(
   rawCharData: RawCharData,
   simResults: LabyrinthResult[] | null,
-  gameData: GameData,
-  withSeals: boolean = false
+  gameData: GameData
 ): AnalysisResult {
   const charName = getCharacterName(rawCharData);
   const timestamp = getDataTimestamp(rawCharData);
@@ -50,21 +48,11 @@ export function generateAnalysis(
   // Parse labyrinthSkip* thresholds from character data
   const { skillRooms: skipSkills, combatRooms: skipCombat } = parseLabyrinthSkip(rawCharData);
 
-  // Compute calculated skill thresholds (Markov chain)
+  // Compute calculated skill thresholds (Markov chain).
+  // Seals are intentionally not applied — they have no effect in labyrinth.
   const calcSkillData = computeAllSkillThresholds(
-    rawCharData, gameData, baseLevels, skipSkills, withSeals
+    rawCharData, gameData, baseLevels, skipSkills
   );
-
-  // When seals are OFF, compute WITH-seals scenario for comparison
-  if (!withSeals) {
-    const sealSkillData = computeAllSkillThresholds(
-      rawCharData, gameData, baseLevels, skipSkills, true
-    );
-    // Merge seal maxClearable into calcSkillData as maxClearableWithSeals
-    for (let i = 0; i < calcSkillData.length; i++) {
-      calcSkillData[i].maxClearableWithSeals = sealSkillData[i].maxClearable;
-    }
-  }
 
   // Set up skill/combat room data
   const skillRooms = skipSkills ?? FALLBACK_SKILL_ROOMS;
@@ -91,9 +79,11 @@ export function generateAnalysis(
 
   // Bottleneck analysis
   const upgradeLevels = getLabyrinthUpgradeLevels(rawCharData);
+  // Resource counts only meaningful for capacity-style upgrades.
   const resources: Record<string, number> = {};
-  for (const utype of Object.keys(LAB_UPGRADE_BASES)) {
-    resources[utype] = LAB_UPGRADE_BASES[utype] + (upgradeLevels[utype as keyof typeof upgradeLevels] as number ?? 0) * LAB_UPGRADE_PER_LEVEL[utype];
+  for (const utype of ["torch", "shroud", "beacon", "cooldown"] as const) {
+    resources[utype] = LAB_UPGRADE_BASES[utype]
+      + ((upgradeLevels[utype as keyof typeof upgradeLevels] as number) ?? 0) * LAB_UPGRADE_PER_LEVEL[utype];
   }
 
   // Compute target floor: use the higher of the calculated estimate and the
@@ -121,7 +111,8 @@ export function generateAnalysis(
 
   // Upgrade priority
   const upgradePriority = computeUpgradeOrder(
-    upgradeLevels, null, results.floorResults, mf
+    upgradeLevels, null, results.floorResults, mf,
+    results.skillData, results.combatData,
   );
 
   // Skip recommendations
@@ -138,7 +129,7 @@ export function generateAnalysis(
     bottleneck,
     upgradeLevels,
     torchBudget,
-    upgradePriority: upgradePriority.slice(0, 10),
+    upgradePriority,
     skipRecommendations,
     charName,
     timestamp,

@@ -106,7 +106,7 @@ function getAvgCombatTime(level: number): number {
   let totalTime = 0, count = 0;
   for (const monsterHrid of labMonsters) {
     const config = monsterLoadoutMap[monsterHrid] ?? defaultConfig;
-    const result = simulateLabyrinthFight(config, monsterHrid, rounded, crateBuffs, [], 0, gameData);
+    const result = simulateLabyrinthFight(config, monsterHrid, rounded, crateBuffs, 0, gameData);
     totalTime += result.success ? result.killTimeNs / 1e9 : 120;
     count++;
   }

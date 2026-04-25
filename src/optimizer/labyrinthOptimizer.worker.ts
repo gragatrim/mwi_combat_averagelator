@@ -10,10 +10,9 @@ import type {
   LabyrinthOptResult,
   LabyrinthOptProgress,
 } from "./labyrinthOptimizer";
-import type { FullCharacterData } from "../data/fullCharacterData";
-import type { GameData, EquipmentDTO, BuffData } from "../engine/types";
-import Buff from "../engine/buff";
-import { buildCrateBuffs, type CrateTier } from "../features/labyrinthSimulator";
+import type { FullCharacterData, LabyrinthUpgradeState } from "../data/fullCharacterData";
+import type { GameData, EquipmentDTO } from "../engine/types";
+import { buildCrateBuffs, buildLabyrinthUpgradeBuffs, type CrateTier } from "../features/labyrinthSimulator";
 
 // =============================================================================
 // Serialized types (Maps → plain objects for postMessage)
@@ -25,6 +24,7 @@ interface SerializedCharData {
   combatLoadouts: FullCharacterData["combatLoadouts"];
   labyrinthCrates: FullCharacterData["labyrinthCrates"];
   labyrinthMonsterLoadouts: FullCharacterData["labyrinthMonsterLoadouts"];
+  labyrinthUpgrades: LabyrinthUpgradeState;
   abilityLevels: Record<string, number>;
   gearPool: Record<string, EquipmentDTO[]>;
 }
@@ -40,7 +40,7 @@ export interface LabOptWorkerStartMessage {
   monsterOverrides: Record<string, string>;
   coffeeCrate: CrateTier;
   foodCrate: CrateTier;
-  sealBuffDatas: BuffData[];
+  labUpgrades: LabyrinthUpgradeState;
   wisdomBuffBonus: number;
   gameData: GameData;
   successRate: number;
@@ -81,6 +81,7 @@ export function serializeCharData(
     combatLoadouts: charData.combatLoadouts,
     labyrinthCrates: charData.labyrinthCrates,
     labyrinthMonsterLoadouts: charData.labyrinthMonsterLoadouts,
+    labyrinthUpgrades: charData.labyrinthUpgrades,
     abilityLevels: Object.fromEntries(charData.abilityLevels),
     gearPool: Object.fromEntries(charData.gearPool),
   };
@@ -92,6 +93,7 @@ function deserializeCharData(raw: SerializedCharData): FullCharacterData {
     combatLoadouts: raw.combatLoadouts,
     labyrinthCrates: raw.labyrinthCrates,
     labyrinthMonsterLoadouts: raw.labyrinthMonsterLoadouts,
+    labyrinthUpgrades: raw.labyrinthUpgrades,
     abilityLevels: new Map(Object.entries(raw.abilityLevels)),
     gearPool: new Map(Object.entries(raw.gearPool)),
   };
@@ -108,7 +110,7 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
     monsterOverrides,
     coffeeCrate,
     foodCrate,
-    sealBuffDatas,
+    labUpgrades,
     wisdomBuffBonus,
     gameData,
     successRate,
@@ -119,15 +121,17 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
 
   try {
     const charData = deserializeCharData(rawCharData);
-    const crateBuffs = buildCrateBuffs(coffeeCrate, foodCrate);
-    const sealBuffs = sealBuffDatas.map((bd) => new Buff(bd));
+    // Seals are intentionally not applied — they have no effect in labyrinth.
+    const crateBuffs = [
+      ...buildCrateBuffs(coffeeCrate, foodCrate),
+      ...buildLabyrinthUpgradeBuffs(labUpgrades),
+    ];
 
     const result = optimizeLabyrinthLoadouts(
       charData,
       defaultLoadoutId,
       monsterOverrides,
       crateBuffs,
-      sealBuffs,
       wisdomBuffBonus,
       gameData,
       successRate,

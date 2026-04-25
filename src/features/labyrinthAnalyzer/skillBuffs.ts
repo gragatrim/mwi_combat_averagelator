@@ -199,6 +199,13 @@ export function computeSkillBuffs(
     levelBoost: DEFAULT_CRATE_LEVEL_BOOST,
   };
 
+  // Permanent labyrinth skilling upgrades (purchased with tokens; apply in-lab only).
+  const upgrades = getLabyrinthUpgradeLevels(charData);
+  buffs.actionSpeed += 0.01  * upgrades.skillSpeed;
+  buffs.efficiency  += 0.01  * upgrades.skillEfficiency;
+  buffs.srBoost     += 0.005 * upgrades.skillSuccess;
+  buffs.dpChance    += 0.01  * upgrades.skillDoubleProgress;
+
   // 1. Equipment buffs from labyrinth loadout
   const titleName = skillName.charAt(0).toUpperCase() + skillName.slice(1);
   const loadout = getLabyrinthLoadout(titleName, charData);
@@ -246,26 +253,44 @@ export function computeSkillBuffs(
 
 /** Get labyrinth upgrade levels from characterInfo */
 export function getLabyrinthUpgradeLevels(charData: RawCharData): {
-  torch: number; shroud: number; beacon: number; cooldown: number; points: number;
+  torch: number; shroud: number; beacon: number; cooldown: number;
+  fullAuto: number; skillSpeed: number; skillEfficiency: number; skillSuccess: number;
+  skillDoubleProgress: number; combatDamage: number; attackSpeed: number; castSpeed: number;
+  criticalRate: number; experience: number; points: number;
 } {
   const ci = charData.characterInfo ?? {};
-  const bases: Record<string, number> = { torch: 100, shroud: 4, beacon: 5, cooldown: 72 };
-  const perLevel: Record<string, number> = { torch: 20, shroud: 1, beacon: 1, cooldown: -4 };
-  const levels: Record<string, number> = {};
 
-  for (const utype of Object.keys(bases)) {
+  // Capacity upgrades stored as caps (derive level from cap delta vs base)
+  const capBases: Record<string, number> = { torch: 100, shroud: 4, beacon: 5, cooldown: 72 };
+  const capPerLevel: Record<string, number> = { torch: 20, shroud: 1, beacon: 1, cooldown: -4 };
+  const levels: Record<string, number> = {};
+  for (const utype of Object.keys(capBases)) {
     let cap: number;
     if (utype === "cooldown") {
-      cap = ci.labyrinthCooldownHours ?? bases[utype];
+      cap = ci.labyrinthCooldownHours ?? capBases[utype];
     } else {
       const key = `labyrinth${utype.charAt(0).toUpperCase() + utype.slice(1)}Cap`;
-      cap = ci[key] ?? bases[utype];
+      cap = ci[key] ?? capBases[utype];
     }
-    const per = perLevel[utype];
-    levels[utype] = per !== 0 ? Math.round((cap - bases[utype]) / per) : 0;
+    const per = capPerLevel[utype];
+    levels[utype] = per !== 0 ? Math.round((cap - capBases[utype]) / per) : 0;
   }
 
-  // Get unspent token count
+  // Stat-style upgrades stored directly as level fields.
+  const lv = (k: string) => Math.max(0, Number(ci[k]) || 0);
+  const fullAuto             = lv("labyrinthFullAutoLevel");
+  const skillSpeed           = lv("labyrinthSkillActionSpeedLevel");
+  const skillEfficiency      = lv("labyrinthSkillingEfficiencyLevel");
+  const skillSuccess         = lv("labyrinthSkillingSuccessLevel");
+  const skillDoubleProgress  = lv("labyrinthSkillingDoubleProgressLevel");
+  const combatDamage         = lv("labyrinthCombatDamageLevel");
+  const attackSpeed          = lv("labyrinthAttackSpeedLevel");
+  const castSpeed            = lv("labyrinthCastSpeedLevel");
+  const criticalRate         = lv("labyrinthCriticalRateLevel");
+  const experience           = lv("labyrinthExperienceLevel");
+
+  // Unspent token count comes from the labyrinth_token inventory item.
+  // characterInfo.labyrinthPoints is lifetime/cumulative, not spendable.
   let points = 0;
   const items = charData.characterItems;
   if (Array.isArray(items)) {
@@ -282,6 +307,16 @@ export function getLabyrinthUpgradeLevels(charData: RawCharData): {
     shroud: levels.shroud ?? 0,
     beacon: levels.beacon ?? 0,
     cooldown: levels.cooldown ?? 0,
+    fullAuto,
+    skillSpeed,
+    skillEfficiency,
+    skillSuccess,
+    skillDoubleProgress,
+    combatDamage,
+    attackSpeed,
+    castSpeed,
+    criticalRate,
+    experience,
     points,
   };
 }

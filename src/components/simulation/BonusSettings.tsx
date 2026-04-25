@@ -9,6 +9,8 @@ interface BonusSettingsProps {
   settings: XpBonusSettings;
   onChange: (updated: XpBonusSettings) => void;
   playerNames: string[];
+  /** Hide seal toggles (e.g. labyrinth mode where seals have no effect). */
+  hideSeals?: boolean;
 }
 
 const SEAL_DEFS = [
@@ -24,6 +26,7 @@ export default function BonusSettings({
   settings,
   onChange,
   playerNames,
+  hideSeals = false,
 }: BonusSettingsProps) {
   const communityBonus =
     settings.communityBuffLevel > 0
@@ -89,6 +92,7 @@ export default function BonusSettings({
           playerIndex={idx}
           isPrimary={idx === 0 && isMultiPlayer}
           bonus={pb}
+          hideSeals={hideSeals}
           onMooPassChange={(v) => updatePlayerBonus(idx, { mooPass: v })}
           onAdditionalXpChange={(v) => updatePlayerBonus(idx, { additionalXpPercent: v })}
           onSealChange={(key, v) => updatePlayerSeals(idx, key, v)}
@@ -103,6 +107,7 @@ function PlayerBonusSection({
   playerIndex: _playerIndex,
   isPrimary,
   bonus,
+  hideSeals,
   onMooPassChange,
   onAdditionalXpChange,
   onSealChange,
@@ -111,6 +116,7 @@ function PlayerBonusSection({
   playerIndex: number;
   isPrimary: boolean;
   bonus: PlayerBonusSettings;
+  hideSeals: boolean;
   onMooPassChange: (v: boolean) => void;
   onAdditionalXpChange: (v: number) => void;
   onSealChange: (key: string, v: boolean) => void;
@@ -163,30 +169,32 @@ function PlayerBonusSection({
         </div>
 
         {/* Seals - compact row */}
-        <div>
-          <div className="text-[10px] text-gray-500 mb-1">Seals</div>
-          <div className="flex flex-wrap gap-1">
-            {SEAL_DEFS.map(([key, label, desc]) => (
-              <label
-                key={key}
-                className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded cursor-pointer border transition-colors ${
-                  bonus.seals[key as keyof SealSettings]
-                    ? "bg-blue-900/30 border-blue-700/50 text-blue-300"
-                    : "bg-gray-900/50 border-gray-700/50 text-gray-500 hover:text-gray-400"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={bonus.seals[key as keyof SealSettings]}
-                  onChange={(e) => onSealChange(key, e.target.checked)}
-                  className="hidden"
-                />
-                <span>{label}</span>
-                <span className="text-gray-600">{desc}</span>
-              </label>
-            ))}
+        {!hideSeals && (
+          <div>
+            <div className="text-[10px] text-gray-500 mb-1">Seals</div>
+            <div className="flex flex-wrap gap-1">
+              {SEAL_DEFS.map(([key, label, desc]) => (
+                <label
+                  key={key}
+                  className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded cursor-pointer border transition-colors ${
+                    bonus.seals[key as keyof SealSettings]
+                      ? "bg-blue-900/30 border-blue-700/50 text-blue-300"
+                      : "bg-gray-900/50 border-gray-700/50 text-gray-500 hover:text-gray-400"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={bonus.seals[key as keyof SealSettings]}
+                    onChange={(e) => onSealChange(key, e.target.checked)}
+                    className="hidden"
+                  />
+                  <span>{label}</span>
+                  <span className="text-gray-600">{desc}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

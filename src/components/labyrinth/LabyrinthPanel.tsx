@@ -4,7 +4,7 @@
 // =============================================================================
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import type { GameData, PlayerConfig, BuffData } from "../../engine/types";
+import type { GameData, PlayerConfig } from "../../engine/types";
 import type {
   CrateTier,
   LabyrinthProgress,
@@ -13,6 +13,7 @@ import { getLabyrinthMonsters, computeAdjustedLevel, DEFAULT_LEVEL_CV } from "..
 import {
   parseFullCharacterData,
   type FullCharacterData,
+  type LabyrinthUpgradeState,
 } from "../../data/fullCharacterData";
 import { hridToName } from "../../utils/formatting";
 import type {
@@ -43,7 +44,8 @@ interface LabyrinthPanelProps {
     monsterLoadoutMap: Record<string, PlayerConfig>,
     successRate: number,
     loadoutNameMap: Record<string, string>,
-    defaultLoadoutName: string
+    defaultLoadoutName: string,
+    labUpgrades: LabyrinthUpgradeState | null
   ) => void;
   isRunning: boolean;
   progress?: LabyrinthProgress | null;
@@ -93,33 +95,6 @@ function detectCrateTier(itemHrid: string): CrateTier {
   return "none";
 }
 
-function buildSealBuffDatas(pb: XpBonusSettings["playerBonuses"][0]): BuffData[] {
-  const datas: BuffData[] = [];
-
-  const makeSealData = (
-    typeHrid: string,
-    flatBoost: number,
-    ratioBoost: number
-  ): BuffData => ({
-    uniqueHrid: `/seals/${typeHrid.split("/").pop()}`,
-    typeHrid,
-    flatBoost,
-    flatBoostLevelBonus: 0,
-    ratioBoost,
-    ratioBoostLevelBonus: 0,
-    startTime: 0,
-    duration: 1800e9,
-  });
-
-  if (pb?.seals?.attackSpeed) datas.push(makeSealData("/buff_types/attack_speed", 0, 0.15));
-  if (pb?.seals?.castSpeed) datas.push(makeSealData("/buff_types/cast_speed", 0.15, 0));
-  if (pb?.seals?.damage) datas.push(makeSealData("/buff_types/damage", 0, 0.08));
-  if (pb?.seals?.criticalRate) datas.push(makeSealData("/buff_types/critical_rate", 0.1, 0));
-  if (pb?.seals?.combatDrop) datas.push(makeSealData("/buff_types/combat_drop_quantity", 0.15, 0));
-
-  return datas;
-}
-
 function computeWisdomBuffBonus(xpBonuses: XpBonusSettings): number {
   const communityWisdom =
     xpBonuses.communityBuffLevel > 0
@@ -128,7 +103,6 @@ function computeWisdomBuffBonus(xpBonuses: XpBonusSettings): number {
   let bonus = communityWisdom;
   const pb = xpBonuses.playerBonuses[0];
   if (pb?.mooPass) bonus += 0.05;
-  if (pb?.seals?.wisdom) bonus += 0.2;
   return bonus;
 }
 
@@ -266,8 +240,8 @@ export default function LabyrinthPanel({
       }
     }
 
-    onRun(defaultLoadout.config, coffeeCrate, foodCrate, loadoutMap, successRate, loadoutNameMap, defaultLoadout.name);
-  }, [defaultLoadout, monsterOverrides, loadouts, coffeeCrate, foodCrate, successRate, onRun]);
+    onRun(defaultLoadout.config, coffeeCrate, foodCrate, loadoutMap, successRate, loadoutNameMap, defaultLoadout.name, charData?.labyrinthUpgrades ?? null);
+  }, [defaultLoadout, monsterOverrides, loadouts, coffeeCrate, foodCrate, successRate, onRun, charData]);
 
   // --- Optimizer handlers ---
   const handleOptimize = useCallback(() => {
@@ -318,8 +292,6 @@ export default function LabyrinthPanel({
       optWorkerRef.current = null;
     };
 
-    const pb = xpBonuses.playerBonuses[0];
-
     const startMsg: LabOptWorkerStartMessage = {
       type: "start",
       charData: serializeCharData(charData),
@@ -327,7 +299,7 @@ export default function LabyrinthPanel({
       monsterOverrides,
       coffeeCrate,
       foodCrate,
-      sealBuffDatas: buildSealBuffDatas(pb),
+      labUpgrades: charData.labyrinthUpgrades,
       wisdomBuffBonus: computeWisdomBuffBonus(xpBonuses),
       gameData,
       successRate,
@@ -364,9 +336,10 @@ export default function LabyrinthPanel({
       loadoutMap,
       successRate,
       loadoutNameMap,
-      defaultLoadout.name
+      defaultLoadout.name,
+      charData?.labyrinthUpgrades ?? null
     );
-  }, [optResult, defaultLoadout, coffeeCrate, foodCrate, successRate, onRun]);
+  }, [optResult, defaultLoadout, coffeeCrate, foodCrate, successRate, onRun, charData]);
 
   const canRun = !!defaultLoadout && !isRunning && !optRunning;
   const canOptimize = !!charData && !!defaultLoadout && !isRunning && !optRunning;
@@ -600,6 +573,16 @@ export default function LabyrinthPanel({
           </div>
         </div>
       </div>
+
+      {/* ================================================================= */}
+      {/* Active Buff Levels                                                */}
+      {/* ================================================================= */}
+      <ActiveBuffsPanel
+        charData={charData}
+        coffeeCrate={coffeeCrate}
+        foodCrate={foodCrate}
+        xpBonuses={xpBonuses}
+      />
 
       {/* ================================================================= */}
       {/* Run Button                                                        */}
@@ -1112,6 +1095,135 @@ function OptimizedLoadoutDetail({
           No changes from baseline loadout.
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Active Buffs Panel — shows what's actually applied to the lab simulation
+// ---------------------------------------------------------------------------
+
+const COFFEE_LEVEL_BOOST: Record<CrateTier, number> = {
+  none: 0, basic: 5, advanced: 10, expert: 15,
+};
+
+const COFFEE_COMBAT_BUFFS: Record<CrateTier, { atkSpd: number; castSpd: number; critRate: number; critDmg: number }> = {
+  none:     { atkSpd: 0,    castSpd: 0,    critRate: 0,    critDmg: 0    },
+  basic:    { atkSpd: 0.05, castSpd: 0.05, critRate: 0,    critDmg: 0    },
+  advanced: { atkSpd: 0.10, castSpd: 0.10, critRate: 0.03, critDmg: 0.05 },
+  expert:   { atkSpd: 0.15, castSpd: 0.15, critRate: 0.06, critDmg: 0.10 },
+};
+
+const FOOD_REGEN: Record<CrateTier, number> = {
+  none: 0, basic: 0.02, advanced: 0.04, expert: 0.06,
+};
+
+function pct(v: number): string {
+  return `+${(v * 100).toFixed(v < 0.01 ? 1 : 0)}%`;
+}
+
+function BuffRow({ label, value, dim = false }: { label: string; value: string; dim?: boolean }) {
+  return (
+    <div className="flex justify-between text-[11px]">
+      <span className="text-gray-400">{label}</span>
+      <span className={dim ? "text-gray-600" : "text-gray-200 tabular-nums"}>{value}</span>
+    </div>
+  );
+}
+
+function ActiveBuffsPanel({
+  charData,
+  coffeeCrate,
+  foodCrate,
+  xpBonuses,
+}: {
+  charData: FullCharacterData | null;
+  coffeeCrate: CrateTier;
+  foodCrate: CrateTier;
+  xpBonuses: XpBonusSettings;
+}) {
+  const upgrades = charData?.labyrinthUpgrades;
+  const coffeeBoost = COFFEE_LEVEL_BOOST[coffeeCrate];
+  const coffeeBuffs = COFFEE_COMBAT_BUFFS[coffeeCrate];
+  const foodRegen = FOOD_REGEN[foodCrate];
+
+  const communityWisdom =
+    xpBonuses.communityBuffLevel > 0
+      ? 0.2 + 0.005 * (xpBonuses.communityBuffLevel - 1)
+      : 0;
+  const mooPass = xpBonuses.playerBonuses[0]?.mooPass ? 0.05 : 0;
+  const additionalXp = (xpBonuses.playerBonuses[0]?.additionalXpPercent ?? 0) / 100;
+
+  return (
+    <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 space-y-3">
+      <h2 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
+        Active Buffs (Lab)
+      </h2>
+
+      {/* Permanent labyrinth upgrades from char data — combat */}
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+          Combat Upgrades {charData ? "" : "(import char data)"}
+        </div>
+        <div className="space-y-0.5">
+          <BuffRow label="Combat Damage"  value={upgrades ? pct(0.01 * upgrades.combatDamage) + ` (lv ${upgrades.combatDamage})` : "—"} dim={!upgrades || upgrades.combatDamage === 0} />
+          <BuffRow label="Attack Speed"   value={upgrades ? pct(0.01 * upgrades.attackSpeed)  + ` (lv ${upgrades.attackSpeed})`  : "—"} dim={!upgrades || upgrades.attackSpeed === 0} />
+          <BuffRow label="Cast Speed"     value={upgrades ? pct(0.01 * upgrades.castSpeed)    + ` (lv ${upgrades.castSpeed})`    : "—"} dim={!upgrades || upgrades.castSpeed === 0} />
+          <BuffRow label="Critical Rate"  value={upgrades ? pct(0.01 * upgrades.criticalRate) + ` (lv ${upgrades.criticalRate})` : "—"} dim={!upgrades || upgrades.criticalRate === 0} />
+          <BuffRow label="Combat XP"      value={upgrades ? pct(0.01 * upgrades.experience)   + ` (lv ${upgrades.experience})`   : "—"} dim={!upgrades || upgrades.experience === 0} />
+        </div>
+      </div>
+
+      {/* Skill upgrades */}
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+          Skilling Upgrades {charData ? "" : "(import char data)"}
+        </div>
+        <div className="space-y-0.5">
+          <BuffRow label="Action Speed"     value={upgrades ? pct(0.01  * upgrades.skillSpeed)          + ` (lv ${upgrades.skillSpeed})`          : "—"} dim={!upgrades || upgrades.skillSpeed === 0} />
+          <BuffRow label="Efficiency"       value={upgrades ? pct(0.01  * upgrades.skillEfficiency)     + ` (lv ${upgrades.skillEfficiency})`     : "—"} dim={!upgrades || upgrades.skillEfficiency === 0} />
+          <BuffRow label="Success Rate"     value={upgrades ? pct(0.005 * upgrades.skillSuccess)        + ` (lv ${upgrades.skillSuccess})`        : "—"} dim={!upgrades || upgrades.skillSuccess === 0} />
+          <BuffRow label="Double Progress"  value={upgrades ? pct(0.01  * upgrades.skillDoubleProgress) + ` (lv ${upgrades.skillDoubleProgress})` : "—"} dim={!upgrades || upgrades.skillDoubleProgress === 0} />
+        </div>
+      </div>
+
+      {/* Coffee crate */}
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+          Coffee Crate ({coffeeCrate === "none" ? "none" : coffeeCrate})
+        </div>
+        <div className="space-y-0.5">
+          <BuffRow label="Level Boost (all combat skills)" value={coffeeBoost > 0 ? `+${coffeeBoost}` : "—"} dim={coffeeBoost === 0} />
+          <BuffRow label="Attack Speed"    value={coffeeBuffs.atkSpd  > 0 ? pct(coffeeBuffs.atkSpd)  : "—"} dim={coffeeBuffs.atkSpd  === 0} />
+          <BuffRow label="Cast Speed"      value={coffeeBuffs.castSpd > 0 ? pct(coffeeBuffs.castSpd) : "—"} dim={coffeeBuffs.castSpd === 0} />
+          <BuffRow label="Critical Rate"   value={coffeeBuffs.critRate > 0 ? pct(coffeeBuffs.critRate) : "—"} dim={coffeeBuffs.critRate === 0} />
+          <BuffRow label="Critical Damage" value={coffeeBuffs.critDmg  > 0 ? pct(coffeeBuffs.critDmg)  : "—"} dim={coffeeBuffs.critDmg  === 0} />
+        </div>
+      </div>
+
+      {/* Food crate */}
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+          Food Crate ({foodCrate === "none" ? "none" : foodCrate})
+        </div>
+        <BuffRow label="HP/MP Regen" value={foodRegen > 0 ? pct(foodRegen) : "—"} dim={foodRegen === 0} />
+      </div>
+
+      {/* XP-only buffs (do not affect kill outcomes, only XP gained) */}
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+          XP Multipliers
+        </div>
+        <div className="space-y-0.5">
+          <BuffRow label={`Community Wisdom (lv ${xpBonuses.communityBuffLevel || "off"})`} value={communityWisdom > 0 ? pct(communityWisdom) : "—"} dim={communityWisdom === 0} />
+          <BuffRow label="MooPass" value={mooPass > 0 ? pct(mooPass) : "—"} dim={mooPass === 0} />
+          <BuffRow label="Other XP" value={additionalXp > 0 ? pct(additionalXp) : "—"} dim={additionalXp === 0} />
+        </div>
+      </div>
+
+      <div className="text-[10px] text-gray-600 leading-relaxed">
+        Seals (atk spd / cast spd / damage / crit / wisdom) have no effect in labyrinth and are not applied.
+      </div>
     </div>
   );
 }

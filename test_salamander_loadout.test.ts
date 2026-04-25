@@ -92,7 +92,6 @@ describe("Salamander: Magic vs Ranged Loadout Comparison", () => {
           monsterHrid,
           level,
           crateBuffs,
-          [],
           0,
           gameData
         );
@@ -102,7 +101,6 @@ describe("Salamander: Magic vs Ranged Loadout Comparison", () => {
           monsterHrid,
           level,
           crateBuffs,
-          [],
           0,
           gameData
         );
@@ -448,7 +446,7 @@ describe("Salamander: Optimizer Per-Weapon Diagnostic", () => {
           const sourceLoadout = findLoadoutForWeapon(weapon, parsed.combatLoadouts);
           const config = cloneConfig(sourceLoadout?.config ?? parsed.combatLoadouts[0].config);
           setWeaponOnConfig(config, weapon);
-          const result = findMaxLabyrinthLevel(config, monsterHrid, crateBuffs, [], 0, gameData, 300, undefined, 0.5);
+          const result = findMaxLabyrinthLevel(config, monsterHrid, crateBuffs, 0, gameData, 300, undefined, 0.5);
           if (result.maxLevel > bestStartLevel) {
             bestStartLevel = result.maxLevel;
             bestStartWeapon = weapon;
@@ -487,14 +485,14 @@ describe("Salamander: Optimizer Per-Weapon Diagnostic", () => {
           for (const candidate of candidates) {
             config.equipment[slot as EquipmentSlotHrid] = candidate;
 
-            const test = simulateLabyrinthFight(config, monsterHrid, bestLevel, crateBuffs, [], 0, gameData);
+            const test = simulateLabyrinthFight(config, monsterHrid, bestLevel, crateBuffs, 0, gameData);
             if (!test.success) continue;
 
             // Probe upward
             let probeLevel = bestLevel;
             let probeKillTime = test.killTimeNs;
             for (let delta = 1; delta <= 10; delta++) {
-              const next = simulateLabyrinthFight(config, monsterHrid, bestLevel + delta, crateBuffs, [], 0, gameData);
+              const next = simulateLabyrinthFight(config, monsterHrid, bestLevel + delta, crateBuffs, 0, gameData);
               if (next.success) {
                 probeLevel = bestLevel + delta;
                 probeKillTime = next.killTimeNs;
@@ -521,7 +519,7 @@ describe("Salamander: Optimizer Per-Weapon Diagnostic", () => {
         }
 
         // Final findMax for accurate result
-        const finalResult = findMaxLabyrinthLevel(config, monsterHrid, crateBuffs, [], 0, gameData, 300, undefined, 0.5);
+        const finalResult = findMaxLabyrinthLevel(config, monsterHrid, crateBuffs, 0, gameData, 300, undefined, 0.5);
         console.log(`Final level after gear optimization: ${finalResult.maxLevel} (raw=${finalResult.rawMaxLevel})`);
         console.log(`Final gear: ${summarizeGear(config)}`);
       }
@@ -717,7 +715,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
       const baselineLoadout = overrideLoadout ?? defaultLoadout;
 
       const baseline = findMaxLabyrinthLevel(
-        baselineLoadout.config, monsterHrid, crateBuffs, sealBuffs,
+        baselineLoadout.config, monsterHrid, crateBuffs,
         wisdomBuffBonus, gameData, 300, undefined, 0.5
       );
       console.log(`\nBaseline: "${baselineLoadout.name}" → level ${baseline.maxLevel} (raw=${baseline.rawMaxLevel})`);
@@ -760,7 +758,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
 
         // Pre-optimization level (weapon + source loadout abilities/gear, WITH seals)
         const preOpt = findMaxLabyrinthLevel(
-          config, monsterHrid, crateBuffs, sealBuffs,
+          config, monsterHrid, crateBuffs,
           wisdomBuffBonus, gameData, 300, undefined, 0.5
         );
 
@@ -796,7 +794,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
             config.abilities[slot] = dto;
 
             const test = simulateLabyrinthFight(
-              config, monsterHrid, bestLevel, crateBuffs, sealBuffs,
+              config, monsterHrid, bestLevel, crateBuffs,
               wisdomBuffBonus, gameData
             );
             if (!test.success) continue;
@@ -805,7 +803,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
             let probeKillTime = test.killTimeNs;
             for (let delta = 1; delta <= 10; delta++) {
               const next = simulateLabyrinthFight(
-                config, monsterHrid, bestLevel + delta, crateBuffs, sealBuffs,
+                config, monsterHrid, bestLevel + delta, crateBuffs,
                 wisdomBuffBonus, gameData
               );
               if (next.success) {
@@ -840,7 +838,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
             config.specialAbility = dto;
 
             const test = simulateLabyrinthFight(
-              config, monsterHrid, bestLevel, crateBuffs, sealBuffs,
+              config, monsterHrid, bestLevel, crateBuffs,
               wisdomBuffBonus, gameData
             );
             if (!test.success) continue;
@@ -849,7 +847,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
             let probeKillTime = test.killTimeNs;
             for (let delta = 1; delta <= 10; delta++) {
               const next = simulateLabyrinthFight(
-                config, monsterHrid, bestLevel + delta, crateBuffs, sealBuffs,
+                config, monsterHrid, bestLevel + delta, crateBuffs,
                 wisdomBuffBonus, gameData
               );
               if (next.success) {
@@ -896,7 +894,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
 
             const test = bestLevel > 0
               ? simulateLabyrinthFight(
-                  config, monsterHrid, bestLevel, crateBuffs, sealBuffs,
+                  config, monsterHrid, bestLevel, crateBuffs,
                   wisdomBuffBonus, gameData
                 )
               : { success: false, killTimeNs: 0 };
@@ -904,7 +902,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
             if (bestLevel === 0 || !test.success) {
               if (bestLevel === 0) {
                 const lvl1 = simulateLabyrinthFight(
-                  config, monsterHrid, 1, crateBuffs, sealBuffs,
+                  config, monsterHrid, 1, crateBuffs,
                   wisdomBuffBonus, gameData
                 );
                 if (lvl1.success) {
@@ -913,7 +911,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
                   bestItem = candidate;
                   for (let delta = 1; delta <= 10; delta++) {
                     const next = simulateLabyrinthFight(
-                      config, monsterHrid, 1 + delta, crateBuffs, sealBuffs,
+                      config, monsterHrid, 1 + delta, crateBuffs,
                       wisdomBuffBonus, gameData
                     );
                     if (next.success) {
@@ -930,7 +928,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
             let probeKillTime = test.killTimeNs;
             for (let delta = 1; delta <= 10; delta++) {
               const next = simulateLabyrinthFight(
-                config, monsterHrid, bestLevel + delta, crateBuffs, sealBuffs,
+                config, monsterHrid, bestLevel + delta, crateBuffs,
                 wisdomBuffBonus, gameData
               );
               if (next.success) {
@@ -960,7 +958,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
 
         // Final findMax for accurate result
         const finalResult = findMaxLabyrinthLevel(
-          config, monsterHrid, crateBuffs, sealBuffs,
+          config, monsterHrid, crateBuffs,
           wisdomBuffBonus, gameData, 300, undefined, 0.5
         );
 
@@ -1058,7 +1056,7 @@ describe("Salamander: Full Optimizer Diagnostic (with seals)", () => {
 
             // Run the actual fight at this level
             const fightResult = simulateLabyrinthFight(
-              result.finalConfig, monsterHrid, targetLevel, crateBuffs, sealBuffs,
+              result.finalConfig, monsterHrid, targetLevel, crateBuffs,
               wisdomBuffBonus, gameData
             );
 
@@ -1289,7 +1287,6 @@ describe("Frost Sniper: Level 228 Diagnostic", () => {
         monsterHrid,
         TARGET_LEVEL,
         crateBuffs,
-        sealBuffs,
         wisdomBuffBonus,
         gameData
       );
@@ -1307,7 +1304,6 @@ describe("Frost Sniper: Level 228 Diagnostic", () => {
         loadout.config,
         monsterHrid,
         crateBuffs,
-        sealBuffs,
         wisdomBuffBonus,
         gameData,
         350  // search up to 350
@@ -1338,7 +1334,6 @@ describe("Frost Sniper: Level 228 Diagnostic", () => {
           monsterHrid,
           lvl,
           crateBuffs,
-          sealBuffs,
           wisdomBuffBonus,
           gameData
         );

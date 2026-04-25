@@ -2,10 +2,11 @@
 // =============================================================================
 // Labyrinth CLI - Run labyrinth combat simulation from the command line
 // =============================================================================
-// Usage: npx tsx scripts/labyrinth_cli.ts <character_data.json> [--success-rate 0.5] [--with-seals]
+// Usage: npx tsx scripts/labyrinth_cli.ts <character_data.json> [--success-rate 0.5]
 //
 // Outputs JSON to stdout with per-monster max levels.
 // Progress info goes to stderr.
+// Seals have no effect in labyrinth and are not applied.
 
 import { readFileSync } from "fs";
 
@@ -32,7 +33,6 @@ import {
   computeClearRate,
   type CrateTier,
 } from "../src/features/labyrinthSimulator";
-import Buff from "../src/engine/buff";
 
 // =============================================================================
 // CLI argument parsing
@@ -41,7 +41,7 @@ import Buff from "../src/engine/buff";
 const args = process.argv.slice(2);
 if (args.length === 0 || args[0] === "--help") {
   console.error(
-    "Usage: npx tsx scripts/labyrinth_cli.ts <character_data.json> [--success-rate 0.5] [--with-seals]"
+    "Usage: npx tsx scripts/labyrinth_cli.ts <character_data.json> [--success-rate 0.5]"
   );
   process.exit(1);
 }
@@ -57,8 +57,6 @@ if (srIdx !== -1 && args[srIdx + 1]) {
     process.exit(1);
   }
 }
-
-const withSeals = args.includes("--with-seals");
 
 // =============================================================================
 // Load data
@@ -124,30 +122,6 @@ if (!defaultConfig) {
 }
 
 // =============================================================================
-// Build seal buffs (if requested)
-// =============================================================================
-
-const sealBuffs: Buff[] = [];
-if (withSeals) {
-  const makeSealBuff = (typeHrid: string, flatBoost: number, ratioBoost: number) =>
-    new Buff({
-      uniqueHrid: `/seals/${typeHrid.split("/").pop()}`,
-      typeHrid,
-      flatBoost,
-      flatBoostLevelBonus: 0,
-      ratioBoost,
-      ratioBoostLevelBonus: 0,
-      startTime: 0,
-      duration: 1800e9,
-    });
-  sealBuffs.push(makeSealBuff("/buff_types/attack_speed", 0, 0.15));
-  sealBuffs.push(makeSealBuff("/buff_types/cast_speed", 0.15, 0));
-  sealBuffs.push(makeSealBuff("/buff_types/damage", 0, 0.08));
-  sealBuffs.push(makeSealBuff("/buff_types/critical_rate", 0.1, 0));
-  console.error("Seal buffs: attack speed +15%, cast speed +0.15, damage +8%, crit rate +10%");
-}
-
-// =============================================================================
 // Run simulation
 // =============================================================================
 
@@ -156,7 +130,6 @@ console.error(`\nRunning labyrinth simulation (success rate: ${successRate})...`
 const results = findAllLabyrinthLevels(
   defaultConfig,
   crateBuffs,
-  sealBuffs,
   0, // no wisdom buff bonus in labyrinth
   gameData,
   300,
@@ -178,7 +151,6 @@ process.stderr.write("\n");
 const output = {
   character: charData.hrid,
   successRate,
-  sealsApplied: withSeals,
   coffeeCrate: coffeeTier,
   foodCrate: foodTier,
   results: results.map((r) => ({

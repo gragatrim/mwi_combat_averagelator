@@ -33,6 +33,19 @@ export interface CombatLoadout {
   config: PlayerConfig;
 }
 
+/** Permanent labyrinth upgrades that buff the player only inside the lab. */
+export interface LabyrinthUpgradeState {
+  combatDamage: number;
+  attackSpeed: number;
+  castSpeed: number;
+  criticalRate: number;
+  experience: number;
+  skillSpeed: number;
+  skillEfficiency: number;
+  skillSuccess: number;
+  skillDoubleProgress: number;
+}
+
 /** Parsed result from full character data. */
 export interface FullCharacterData {
   /** Player name/hrid. */
@@ -47,6 +60,8 @@ export interface FullCharacterData {
   };
   /** Labyrinth per-monster loadout assignments (monster hrid → loadout id). */
   labyrinthMonsterLoadouts: Record<string, string>;
+  /** Permanent labyrinth combat upgrade levels (token-purchased). */
+  labyrinthUpgrades: LabyrinthUpgradeState;
   /** All trained ability hrids → levels (from characterAbilities). */
   abilityLevels: Map<string, number>;
   /** Equipment slot → unique items across all combat loadouts. */
@@ -228,7 +243,22 @@ export function parseFullCharacterData(
   // --- Build gear pool from all owned equipment (inventory + loadouts) ---
   const gearPool = buildGearPool(data, combatLoadouts, gameData);
 
-  return { hrid, combatLoadouts, labyrinthCrates, labyrinthMonsterLoadouts, abilityLevels, gearPool };
+  // --- Permanent labyrinth combat upgrades ---
+  const ci = (data.characterInfo ?? {}) as Record<string, unknown>;
+  const num = (k: string): number => Math.max(0, Number(ci[k]) || 0);
+  const labyrinthUpgrades: LabyrinthUpgradeState = {
+    combatDamage:        num("labyrinthCombatDamageLevel"),
+    attackSpeed:         num("labyrinthAttackSpeedLevel"),
+    castSpeed:           num("labyrinthCastSpeedLevel"),
+    criticalRate:        num("labyrinthCriticalRateLevel"),
+    experience:          num("labyrinthExperienceLevel"),
+    skillSpeed:          num("labyrinthSkillActionSpeedLevel"),
+    skillEfficiency:     num("labyrinthSkillingEfficiencyLevel"),
+    skillSuccess:        num("labyrinthSkillingSuccessLevel"),
+    skillDoubleProgress: num("labyrinthSkillingDoubleProgressLevel"),
+  };
+
+  return { hrid, combatLoadouts, labyrinthCrates, labyrinthMonsterLoadouts, labyrinthUpgrades, abilityLevels, gearPool };
 }
 
 // =============================================================================

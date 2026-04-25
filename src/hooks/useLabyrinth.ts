@@ -4,14 +4,15 @@
 
 import { useState, useCallback } from "react";
 import type { GameData, PlayerConfig } from "../engine/types";
-import Buff from "../engine/buff";
 import type { XpBonusSettings } from "./useSimulation";
 import {
   buildCrateBuffs,
+  buildLabyrinthUpgradeBuffs,
   findAllLabyrinthLevels,
   type CrateTier,
   type LabyrinthResult,
   type LabyrinthProgress,
+  type LabyrinthUpgradeLevels,
 } from "../features/labyrinthSimulator";
 
 export interface UseLabyrinthReturn {
@@ -26,7 +27,8 @@ export interface UseLabyrinthReturn {
     xpBonuses: XpBonusSettings,
     gameData: GameData,
     monsterLoadoutMap?: Record<string, PlayerConfig>,
-    successRate?: number
+    successRate?: number,
+    labUpgrades?: LabyrinthUpgradeLevels | null
   ) => void;
   clearResults: () => void;
 }
@@ -45,7 +47,8 @@ export function useLabyrinth(): UseLabyrinthReturn {
       xpBonuses: XpBonusSettings,
       gameData: GameData,
       monsterLoadoutMap?: Record<string, PlayerConfig>,
-      successRate: number = 0.5
+      successRate: number = 0.5,
+      labUpgrades: LabyrinthUpgradeLevels | null = null
     ) => {
       setIsRunning(true);
       setError(null);
@@ -55,64 +58,24 @@ export function useLabyrinth(): UseLabyrinthReturn {
       // Use setTimeout to allow UI to update before blocking sim
       setTimeout(() => {
         try {
-          // Build crate buffs
-          const crateBuffs = buildCrateBuffs(coffeeCrate, foodCrate);
+          // Build crate buffs + permanent labyrinth upgrade buffs.
+          // Seals are intentionally not applied — they have no effect in labyrinth.
+          const crateBuffs = [
+            ...buildCrateBuffs(coffeeCrate, foodCrate),
+            ...buildLabyrinthUpgradeBuffs(labUpgrades),
+          ];
 
-          // Build seal buffs (same logic as useSimulation)
           const pb = xpBonuses.playerBonuses[0];
           const communityWisdom =
             xpBonuses.communityBuffLevel > 0
               ? 0.2 + 0.005 * (xpBonuses.communityBuffLevel - 1)
               : 0;
-
           let wisdomBuffBonus = communityWisdom;
-          const sealBuffs: Buff[] = [];
-
-          const makeSealBuff = (
-            typeHrid: string,
-            flatBoost: number,
-            ratioBoost: number
-          ) =>
-            new Buff({
-              uniqueHrid: `/seals/${typeHrid.split("/").pop()}`,
-              typeHrid,
-              flatBoost,
-              flatBoostLevelBonus: 0,
-              ratioBoost,
-              ratioBoostLevelBonus: 0,
-              startTime: 0,
-              duration: 1800e9,
-            });
-
-          if (pb) {
-            if (pb.mooPass) wisdomBuffBonus += 0.05;
-            if (pb.seals?.wisdom) wisdomBuffBonus += 0.2;
-            if (pb.seals?.attackSpeed)
-              sealBuffs.push(
-                makeSealBuff("/buff_types/attack_speed", 0, 0.15)
-              );
-            if (pb.seals?.castSpeed)
-              sealBuffs.push(
-                makeSealBuff("/buff_types/cast_speed", 0.15, 0)
-              );
-            if (pb.seals?.damage)
-              sealBuffs.push(
-                makeSealBuff("/buff_types/damage", 0, 0.08)
-              );
-            if (pb.seals?.criticalRate)
-              sealBuffs.push(
-                makeSealBuff("/buff_types/critical_rate", 0.1, 0)
-              );
-            if (pb.seals?.combatDrop)
-              sealBuffs.push(
-                makeSealBuff("/buff_types/combat_drop_quantity", 0.15, 0)
-              );
-          }
+          if (pb?.mooPass) wisdomBuffBonus += 0.05;
 
           const labResults = findAllLabyrinthLevels(
             playerConfig,
             crateBuffs,
-            sealBuffs,
             wisdomBuffBonus,
             gameData,
             360,

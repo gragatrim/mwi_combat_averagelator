@@ -99,7 +99,6 @@ describe("Full Character Data + Labyrinth", () => {
       rangedLab!.config,
       "/monsters/cyclops",
       crateBuffs,
-      [],
       0,
       gameData,
       300
@@ -140,7 +139,6 @@ describe("Full Character Data + Labyrinth", () => {
       const results = findAllLabyrinthLevels(
         defaultConfig,
         crateBuffs,
-        [],
         0,
         gameData,
         300,

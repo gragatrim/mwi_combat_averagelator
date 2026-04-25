@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import type { AnalysisResult } from "../../../features/labyrinthAnalyzer/types";
-import { PERCOLATION_THRESHOLD } from "../../../features/labyrinthAnalyzer/constants";
+import { PERCOLATION_THRESHOLD, LAB_UPGRADE_DISPLAY, LAB_UPGRADE_MAX_LEVEL, LAB_UPGRADE_PER_LEVEL } from "../../../features/labyrinthAnalyzer/constants";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,6 +48,79 @@ function sourceBadge(source: string): React.ReactNode {
 
 function thresholdStr(t: number): string {
   return t >= 0 ? `+${t}` : String(t);
+}
+
+function categoryBadge(cat: string): React.ReactNode {
+  const colors: Record<string, string> = {
+    capacity: "bg-blue-900/40 text-blue-300 border-blue-700",
+    skill:    "bg-emerald-900/40 text-emerald-300 border-emerald-700",
+    combat:   "bg-red-900/40 text-red-300 border-red-700",
+    qol:      "bg-gray-700/40 text-gray-400 border-gray-600",
+  };
+  return (
+    <span className={`text-[9px] px-1.5 py-0.5 rounded border ${colors[cat] ?? colors.qol}`}>
+      {cat}
+    </span>
+  );
+}
+
+function UpgradeStatusGrid({ levels }: { levels: NonNullable<AnalysisResult["upgradeLevels"]> }) {
+  const rows = (Object.keys(LAB_UPGRADE_DISPLAY) as (keyof typeof LAB_UPGRADE_DISPLAY)[]).map((key) => {
+    const display = LAB_UPGRADE_DISPLAY[key];
+    const lv = (levels as unknown as Record<string, number>)[key] ?? 0;
+    const max = LAB_UPGRADE_MAX_LEVEL[key];
+    return { key, display, lv, max };
+  });
+  const grouped: Record<string, typeof rows> = { capacity: [], skill: [], combat: [], qol: [] };
+  for (const r of rows) grouped[r.display.category].push(r);
+
+  const renderGroup = (title: string, list: typeof rows) => (
+    <div>
+      <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{title}</div>
+      <div className="space-y-0.5">
+        {list.map(({ key, display, lv, max }) => {
+          const per = LAB_UPGRADE_PER_LEVEL[key];
+          const isPercent = display.unit === "%";
+          let valStr: string;
+          if (display.category === "capacity" && key !== "cooldown") {
+            const base = key === "torch" ? 100 : key === "shroud" ? 4 : key === "beacon" ? 5 : 0;
+            valStr = `${base + lv * per}${display.unit}`;
+          } else if (key === "cooldown") {
+            valStr = `${72 + lv * per}h`;
+          } else if (isPercent) {
+            valStr = `+${(lv * per * 100).toFixed(per === 0.005 ? 1 : 0)}%`;
+          } else {
+            valStr = `${lv * per} ${display.unit}`;
+          }
+          const maxed = lv >= max;
+          return (
+            <div key={key} className="flex items-center justify-between text-[11px]">
+              <span className="text-gray-300">{display.name}</span>
+              <span className={`tabular-nums ${maxed ? "text-emerald-400" : "text-gray-400"}`}>
+                {valStr} <span className="text-gray-600">({lv}/{max})</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+        {renderGroup("Capacity", grouped.capacity)}
+        {renderGroup("Skilling", grouped.skill)}
+        {renderGroup("Combat", grouped.combat)}
+        {renderGroup("Quality of Life", grouped.qol)}
+      </div>
+      {levels.points > 0 && (
+        <div className="text-[11px] text-emerald-400 mt-2">
+          {levels.points.toLocaleString()} unspent tokens
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -193,12 +266,6 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
                   <td className="px-2 py-1.5 text-right text-gray-400">{thresholdStr(s.threshold)}</td>
                   <td className={`px-2 py-1.5 text-right font-semibold ${clearableColor(s.maxClearable)}`}>
                     {s.maxClearable}
-                    {/* Seal comparison when available and different */}
-                    {s.maxClearableWithSeals != null && s.maxClearableWithSeals !== s.maxClearable && (
-                      <span className="text-[10px] text-gray-500 ml-1">
-                        (w/seals: <span className={clearableColor(s.maxClearableWithSeals)}>{s.maxClearableWithSeals}</span>)
-                      </span>
-                    )}
                     {/* In-game comparison (existing logic) */}
                     {s.igMaxClearable != null && (
                       <span className="text-[10px] text-gray-500 ml-1">
@@ -384,18 +451,14 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
       {/* ============================================================== */}
       {upgradePriority && upgradePriority.length > 0 && upgradeLevels && (
         <Section title="Upgrade Priority" defaultOpen={false}>
-          <div className="text-[11px] text-gray-400 mb-2">
-            Current: {100 + upgradeLevels.torch * 20}T / {4 + upgradeLevels.shroud}S / {5 + upgradeLevels.beacon}B / {72 + upgradeLevels.cooldown * -4}h CD
-            {upgradeLevels.points > 0 && (
-              <span className="text-green-400 ml-2">({upgradeLevels.points} unspent tokens)</span>
-            )}
-          </div>
-          <div className="overflow-x-auto">
+          <UpgradeStatusGrid levels={upgradeLevels} />
+          <div className="overflow-x-auto mt-3">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
                   <th className="text-left px-2 py-1 font-medium">#</th>
                   <th className="text-left px-2 py-1 font-medium">Upgrade</th>
+                  <th className="text-center px-2 py-1 font-medium">Cat</th>
                   <th className="text-right px-2 py-1 font-medium">Cost</th>
                   <th className="text-right px-2 py-1 font-medium">+Box/mo</th>
                   <th className="text-right px-2 py-1 font-medium">Val/1kT</th>
@@ -403,25 +466,32 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {upgradePriority.map((e, i) => (
-                  <tr
-                    key={`${e.type}-${e.level}`}
-                    className={`border-t border-gray-700/50 ${i === 0 ? "bg-emerald-900/10" : ""}`}
-                  >
-                    <td className="px-2 py-1 text-gray-500">{i + 1}</td>
-                    <td className="px-2 py-1 text-gray-300 font-medium">
-                      {e.type.charAt(0).toUpperCase() + e.type.slice(1)} +{e.level}
-                    </td>
-                    <td className="px-2 py-1 text-right text-gray-400">{e.cost}</td>
-                    <td className="px-2 py-1 text-right text-gray-300">
-                      {e.deltaBoxesMonth > 0 ? "+" : ""}{e.deltaBoxesMonth.toFixed(1)}
-                    </td>
-                    <td className="px-2 py-1 text-right text-gray-400">{e.valuePerToken.toFixed(2)}</td>
-                    <td className="px-2 py-1 text-left text-gray-500 text-[10px]">{e.description}</td>
-                  </tr>
-                ))}
+                {upgradePriority.map((e, i) => {
+                  const display = LAB_UPGRADE_DISPLAY[e.type];
+                  return (
+                    <tr
+                      key={`${e.type}-${e.level}`}
+                      className={`border-t border-gray-700/50 ${i === 0 ? "bg-emerald-900/10" : ""}`}
+                    >
+                      <td className="px-2 py-1 text-gray-500">{i + 1}</td>
+                      <td className="px-2 py-1 text-gray-300 font-medium">
+                        {display?.name ?? e.type} +{e.level}
+                      </td>
+                      <td className="px-2 py-1 text-center">{categoryBadge(e.category)}</td>
+                      <td className="px-2 py-1 text-right text-gray-400">{e.cost}</td>
+                      <td className="px-2 py-1 text-right text-gray-300">
+                        {e.deltaBoxesMonth > 0 ? "+" : ""}{e.deltaBoxesMonth.toFixed(1)}
+                      </td>
+                      <td className="px-2 py-1 text-right text-gray-400">{e.valuePerToken.toFixed(2)}</td>
+                      <td className="px-2 py-1 text-left text-gray-500 text-[10px]">{e.description}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+          <div className="text-[10px] text-gray-500 mt-2">
+            Box/mo and Val/1kT are heuristics — capacity upgrades use direct torch-budget math; skill/combat upgrades approximate a +1 effective level per +1% boost. XP and full-auto have no box value but are listed for completeness.
           </div>
         </Section>
       )}

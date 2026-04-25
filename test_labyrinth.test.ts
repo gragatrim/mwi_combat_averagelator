@@ -18,8 +18,6 @@ import {
   computeAdjustedLevel,
   computeLevelBasedClearRate,
 } from "./src/features/labyrinthSimulator";
-import Buff from "./src/engine/buff";
-
 const gameData: GameData = JSON.parse(
   readFileSync("public/init_client_data.json", "utf-8")
 );
@@ -64,7 +62,6 @@ describe("Labyrinth Simulator", () => {
       "/monsters/cyclops",
       1,
       [],
-      [],
       0,
       gameData
     );
@@ -80,7 +77,6 @@ describe("Labyrinth Simulator", () => {
       "/monsters/cyclops",
       999,
       [],
-      [],
       0,
       gameData
     );
@@ -92,7 +88,6 @@ describe("Labyrinth Simulator", () => {
     const result = findMaxLabyrinthLevel(
       playerConfig,
       "/monsters/cyclops",
-      [],
       [],
       0,
       gameData,
@@ -112,7 +107,6 @@ describe("Labyrinth Simulator", () => {
     const results = findAllLabyrinthLevels(
       playerConfig,
       crateBuffs,
-      [],
       0,
       gameData,
       300,
@@ -178,7 +172,6 @@ describe("Labyrinth Simulator", () => {
       playerConfig,
       "/monsters/cyclops",
       crateBuffs,
-      [],
       0,
       gameData,
       300,
@@ -190,7 +183,6 @@ describe("Labyrinth Simulator", () => {
       playerConfig,
       "/monsters/cyclops",
       crateBuffs,
-      [],
       0,
       gameData,
       300,

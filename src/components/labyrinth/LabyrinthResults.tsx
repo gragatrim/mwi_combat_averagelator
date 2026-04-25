@@ -20,8 +20,6 @@ interface LabyrinthResultsProps {
   rawCharData: Record<string, unknown> | null;
   /** Game data needed for floor analysis */
   gameData: GameData;
-  /** Whether seals are enabled (for analysis) */
-  withSeals?: boolean;
 }
 
 export default function LabyrinthResults({
@@ -30,7 +28,6 @@ export default function LabyrinthResults({
   defaultLoadoutName,
   rawCharData,
   gameData,
-  withSeals = false,
 }: LabyrinthResultsProps) {
   const [activeTab, setActiveTab] = useState<Tab>("maxLevels");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -48,7 +45,7 @@ export default function LabyrinthResults({
     // Use setTimeout to allow UI to update
     setTimeout(() => {
       try {
-        const result = generateAnalysis(rawCharData, results, gameData, withSeals);
+        const result = generateAnalysis(rawCharData, results, gameData);
         setAnalysis(result);
         setActiveTab("analysis");
       } catch (e) {
@@ -57,7 +54,7 @@ export default function LabyrinthResults({
         setIsAnalyzing(false);
       }
     }, 10);
-  }, [rawCharData, results, gameData, withSeals]);
+  }, [rawCharData, results, gameData]);
 
   return (
     <div className="space-y-3">

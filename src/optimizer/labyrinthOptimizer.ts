@@ -489,7 +489,6 @@ export function optimizeLabyrinthLoadouts(
   defaultLoadoutId: string,
   monsterOverrides: Record<string, string>,
   crateBuffs: Buff[],
-  sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
   successRate: number,
@@ -544,7 +543,6 @@ export function optimizeLabyrinthLoadouts(
       monsterHrid,
       level,
       crateBuffs,
-      sealBuffs,
       wisdomBuffBonus,
       gameData
     );
@@ -558,7 +556,6 @@ export function optimizeLabyrinthLoadouts(
       config,
       monsterHrid,
       crateBuffs,
-      sealBuffs,
       wisdomBuffBonus,
       gameData,
       successRate
@@ -1123,7 +1120,6 @@ function findMaxLabyrinthLevelCounted(
   config: PlayerConfig,
   monsterHrid: string,
   crateBuffs: Buff[],
-  sealBuffs: Buff[],
   wisdomBuffBonus: number,
   gameData: GameData,
   successRate: number
@@ -1133,7 +1129,6 @@ function findMaxLabyrinthLevelCounted(
     config,
     monsterHrid,
     crateBuffs,
-    sealBuffs,
     wisdomBuffBonus,
     gameData,
     360,

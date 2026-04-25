@@ -288,7 +288,6 @@ for (const level of [278, 287]) {
     MONSTER_HRID,
     level,
     crateBuffs,
-    [],  // no seal buffs
     0,   // no wisdom bonus
     gameData
   );
