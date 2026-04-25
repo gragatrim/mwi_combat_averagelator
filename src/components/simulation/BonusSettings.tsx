@@ -168,10 +168,10 @@ function PlayerBonusSection({
           </div>
         </div>
 
-        {/* Seals - compact row */}
+        {/* Scrolls - compact row */}
         {!hideSeals && (
           <div>
-            <div className="text-[10px] text-gray-500 mb-1">Seals</div>
+            <div className="text-[10px] text-gray-500 mb-1">Scrolls</div>
             <div className="flex flex-wrap gap-1">
               {SEAL_DEFS.map(([key, label, desc]) => (
                 <label

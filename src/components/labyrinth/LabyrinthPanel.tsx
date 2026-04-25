@@ -1222,7 +1222,7 @@ function ActiveBuffsPanel({
       </div>
 
       <div className="text-[10px] text-gray-600 leading-relaxed">
-        Seals (atk spd / cast spd / damage / crit / wisdom) have no effect in labyrinth and are not applied.
+        Scrolls (atk spd / cast spd / damage / crit / wisdom) have no effect in labyrinth and are not applied.
       </div>
     </div>
   );

@@ -38,7 +38,7 @@ export function computeMaxClearableLevel(
 
     let prob: number;
     if (isEnhancing) {
-      const targetEnh = 3 + Math.floor(mid / 50);
+      const targetEnh = 5;
       prob = calcEnhancingRoomProb(targetEnh, workTimeMs, sr, buffs.dpChance);
     } else {
       const targetWork = mid * 10;
