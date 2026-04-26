@@ -21,7 +21,7 @@ import {
   LAB_UPGRADE_BASES,
   LAB_UPGRADE_PER_LEVEL,
   LAB_UPGRADE_MAX_LEVEL,
-  LAB_UPGRADE_COST_PER_LEVEL,
+  getUpgradeCost,
   LAB_UPGRADE_DISPLAY,
   FLOORS,
   FLOOR_EXIT_REWARDS,
@@ -138,7 +138,7 @@ function makeEntry(
   deltaBoxesMonth: number,
   description: string,
 ): UpgradePriorityEntry {
-  const cost = LAB_UPGRADE_COST_PER_LEVEL[type] * nextLevel;
+  const cost = getUpgradeCost(type, nextLevel);
   const category = LAB_UPGRADE_DISPLAY[type].category;
   return {
     type, level: nextLevel, cost,

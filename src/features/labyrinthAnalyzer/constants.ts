@@ -28,12 +28,19 @@ export const LAB_UPGRADE_MAX_LEVEL: Record<string, number> = {
   skillSpeed: 12, skillEfficiency: 12, skillSuccess: 12, skillDoubleProgress: 12,
   combatDamage: 12, attackSpeed: 12, castSpeed: 12, criticalRate: 12, experience: 12,
 };
-// Cost for next level = base * nextLevel. Verified from in-game upgrade panel.
-export const LAB_UPGRADE_COST_PER_LEVEL: Record<string, number> = {
-  torch: 100, shroud: 80, beacon: 60, cooldown: 600, fullAuto: 30,
+// Linear coefficient: cost(n) = base * n. Cooldown is non-linear, see getUpgradeCost.
+const LAB_UPGRADE_LINEAR_BASE: Record<string, number> = {
+  torch: 100, shroud: 80, beacon: 60, fullAuto: 30,
   skillSpeed: 40, skillEfficiency: 40, skillSuccess: 40, skillDoubleProgress: 40,
   combatDamage: 40, attackSpeed: 40, castSpeed: 40, criticalRate: 40, experience: 80,
 };
+
+// Verified from in-game upgrade panel. Cooldown follows quadratic 100n² + 100n + 600
+// (800, 1200, 1800, 2600, 3600, 4800); all others are linear base * n.
+export function getUpgradeCost(type: string, nextLevel: number): number {
+  if (type === "cooldown") return 100 * nextLevel * nextLevel + 100 * nextLevel + 600;
+  return (LAB_UPGRADE_LINEAR_BASE[type] ?? 0) * nextLevel;
+}
 
 export const LAB_UPGRADE_DISPLAY: Record<string, { name: string; category: "capacity" | "skill" | "combat" | "qol"; unit: string }> = {
   torch:               { name: "Torch Capacity",         category: "capacity", unit: "T"   },
