@@ -184,11 +184,20 @@ function getCrateBuffs(
   return result;
 }
 
+/** Optional override for the skilling-upgrade levels read from charData. */
+export interface SkillUpgradeOverride {
+  skillSpeed?: number;
+  skillEfficiency?: number;
+  skillSuccess?: number;
+  skillDoubleProgress?: number;
+}
+
 /** Aggregate all buffs for a skill */
 export function computeSkillBuffs(
   skillName: string,
   charData: RawCharData,
-  gameData: GameData
+  gameData: GameData,
+  upgradeOverride?: SkillUpgradeOverride
 ): SkillBuffs {
   const actionType = `/action_types/${skillName}`;
   const buffs: SkillBuffs = {
@@ -201,10 +210,14 @@ export function computeSkillBuffs(
 
   // Permanent labyrinth skilling upgrades (purchased with tokens; apply in-lab only).
   const upgrades = getLabyrinthUpgradeLevels(charData);
-  buffs.actionSpeed += 0.01  * upgrades.skillSpeed;
-  buffs.efficiency  += 0.01  * upgrades.skillEfficiency;
-  buffs.srBoost     += 0.005 * upgrades.skillSuccess;
-  buffs.dpChance    += 0.01  * upgrades.skillDoubleProgress;
+  const sSpeed   = upgradeOverride?.skillSpeed           ?? upgrades.skillSpeed;
+  const sEff     = upgradeOverride?.skillEfficiency      ?? upgrades.skillEfficiency;
+  const sSuccess = upgradeOverride?.skillSuccess         ?? upgrades.skillSuccess;
+  const sDp      = upgradeOverride?.skillDoubleProgress  ?? upgrades.skillDoubleProgress;
+  buffs.actionSpeed += 0.01  * sSpeed;
+  buffs.efficiency  += 0.01  * sEff;
+  buffs.srBoost     += 0.005 * sSuccess;
+  buffs.dpChance    += 0.01  * sDp;
 
   // 1. Equipment buffs from labyrinth loadout
   const titleName = skillName.charAt(0).toUpperCase() + skillName.slice(1);
@@ -324,6 +337,66 @@ export function getLabyrinthUpgradeLevels(charData: RawCharData): {
 /** Get the player's highest achieved labyrinth floor from characterInfo */
 export function getHighestAchievedFloor(charData: RawCharData): number {
   return charData.characterInfo?.labyrinthHighestFloor ?? 0;
+}
+
+/** Per-monster combat loadout characteristics relevant to upgrade scoring. */
+export interface CombatLoadoutProfile {
+  /** Number of slotted abilities whose effects deal direct damage. */
+  damageAbilityCount: number;
+  /** Sum of cast durations (seconds) for slotted abilities. */
+  totalCastDurationS: number;
+}
+
+/**
+ * Parse the player's labyrinth combat loadouts and produce per-monster ability
+ * profiles. Returned map is keyed by monster hrid (e.g. "/monsters/frost_sniper").
+ *
+ * Used by the upgrade-priority ranker so combat upgrades like cast speed are
+ * only credited for monsters whose loadout actually casts damage spells.
+ */
+export function parseCombatLoadoutProfiles(
+  charData: RawCharData,
+  gameData: GameData
+): Map<string, CombatLoadoutProfile> {
+  const result = new Map<string, CombatLoadoutProfile>();
+  const settings = charData.characterSetting;
+  const loadoutMap = charData.characterLoadoutMap;
+  if (!settings || typeof settings !== "object") return result;
+  if (!loadoutMap || typeof loadoutMap !== "object") return result;
+
+  for (const [key, value] of Object.entries(settings)) {
+    if (!key.startsWith("labyrinthLoadout") || value == null) continue;
+    if (key.startsWith("labyrinthLoadoutSkip")) continue;
+    const suffix = key.slice("labyrinthLoadout".length);
+    const snake = suffix
+      .replace(/([A-Z])/g, "_$1")
+      .toLowerCase()
+      .replace(/^_/, "");
+    const monsterHrid = `/monsters/${snake}`;
+
+    const loadout = (loadoutMap as Record<string, unknown>)[String(value)] as
+      | Record<string, unknown>
+      | undefined;
+    if (!loadout) continue;
+    if (loadout.actionTypeHrid !== "/action_types/combat") continue;
+
+    const abilityMap = (loadout.abilityMap ?? {}) as Record<string, string>;
+    let damageAbilityCount = 0;
+    let totalCastDurationS = 0;
+    for (const abilityHrid of Object.values(abilityMap)) {
+      if (!abilityHrid || typeof abilityHrid !== "string") continue;
+      const ability = gameData.abilityDetailMap[abilityHrid];
+      if (!ability) continue;
+      const dealsDamage = (ability.abilityEffects ?? []).some(
+        (e) => !!e.damageType && e.damageType !== ""
+      );
+      if (dealsDamage) damageAbilityCount++;
+      totalCastDurationS += (ability.castDuration ?? 0) / 1e9;
+    }
+
+    result.set(monsterHrid, { damageAbilityCount, totalCastDurationS });
+  }
+  return result;
 }
 
 // --- Helpers ---

@@ -20,11 +20,12 @@ import {
   parseLabyrinthSkip,
   getLabyrinthUpgradeLevels,
   getHighestAchievedFloor,
+  parseCombatLoadoutProfiles,
 } from "./skillBuffs";
 import { computeAllSkillThresholds } from "./thresholds";
 import { analyze, computeBottleneck, computeSkipRecommendations } from "./floorAnalysis";
 import { computeTorchBudget } from "./torchBudget";
-import { computeUpgradeOrder } from "./upgradeOrder";
+import { computeUpgradeOrder, type RecomputeSkillData } from "./upgradeOrder";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawCharData = Record<string, any>;
@@ -109,10 +110,20 @@ export function generateAnalysis(
     resources.torch, targetFloor, results.floorResults, resources.beacon
   );
 
-  // Upgrade priority
+  // Upgrade priority — supply a closure so skill upgrade marginal value is
+  // computed by re-deriving real maxClearable thresholds at hypothetical
+  // skill-upgrade levels (rather than a fixed effective-level boost).
+  const recomputeSkillData: RecomputeSkillData = (overrides) =>
+    computeAllSkillThresholds(rawCharData, gameData, baseLevels, skipSkills, overrides);
+  // Combat loadout profiles — used by the ranker to make cast/attack speed
+  // scoring build-aware. A loadout running only buff abilities gets zero
+  // credit for cast speed, etc.
+  const combatLoadoutProfiles = parseCombatLoadoutProfiles(rawCharData, gameData);
   const upgradePriority = computeUpgradeOrder(
     upgradeLevels, null, results.floorResults, mf,
     results.skillData, results.combatData,
+    calcSkillData.length > 0 ? recomputeSkillData : null,
+    combatLoadoutProfiles,
   );
 
   // Skip recommendations

@@ -10,7 +10,7 @@ import {
   LABYRINTH_SKILL_NAMES,
 } from "./constants";
 import { calcSkillRoomProb, calcEnhancingRoomProb, estimateSuccessRate } from "./markovChain";
-import { computeSkillBuffs } from "./skillBuffs";
+import { computeSkillBuffs, type SkillUpgradeOverride } from "./skillBuffs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawCharData = Record<string, any>;
@@ -64,7 +64,8 @@ export function computeAllSkillThresholds(
   charData: RawCharData,
   gameData: GameData,
   baseLevels: Record<string, number>,
-  skipSkills: [string, string, number][] | null
+  skipSkills: [string, string, number][] | null,
+  upgradeOverride?: SkillUpgradeOverride
 ): SkillRoomData[] {
   const results: SkillRoomData[] = [];
 
@@ -83,7 +84,7 @@ export function computeAllSkillThresholds(
     if (base === 0) continue;
 
     // Seals are intentionally not applied — they have no effect in labyrinth.
-    const buffs = computeSkillBuffs(skillName, charData, gameData);
+    const buffs = computeSkillBuffs(skillName, charData, gameData, upgradeOverride);
 
     const calcMc = computeMaxClearableLevel(skillName, buffs, base);
     const eff = base + buffs.levelBoost;

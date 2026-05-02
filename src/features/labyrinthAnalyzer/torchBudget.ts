@@ -110,8 +110,13 @@ function floorExplorationEv(
   const gridRooms = dim * dim;
   const rushRooms = rushEventsForFloor(floorNum);
   const availableRooms = Math.max(1, gridRooms - rushRooms);
-  const clearableRooms = Math.max(1, Math.floor(availableRooms * clearRate));
-  const reachable = Math.max(1, Math.floor(clearableRooms * clearRate));
+  // Use fractional values throughout so marginal-value calculations are
+  // smooth. Discrete-room rounding here causes step functions in the
+  // upgrade-priority scoring (Torch+N giving wildly different deltas as
+  // an integer threshold is crossed).
+  const clearableRooms = availableRooms * clearRate;
+  const reachable = clearableRooms * clearRate;
+  if (reachable <= 0) return [0, 0, 0];
   roomsExplored = Math.min(roomsExplored, reachable);
 
   const rushRevealed = rushRooms * RUSH_PATH_REVEAL_FACTOR;
@@ -162,9 +167,17 @@ export function computeTorchBudget(
   const beaconAlloc = allocateBeacons(beaconCount, targetFloor, floorResults);
 
   // Phase 3: Top-down waterfall
+  // Budget = total torches − rush spend on every floor − safety reserve.
+  // We previously subtracted only the lower-floor rush, then capped target
+  // floor exploration to (reserve − targetRush), which collapsed to 0 for any
+  // F5+ target (target rush ≈ 11.4 > reserve = 10). That structurally
+  // suppressed exploration on the most box-rich floor. Now target rush is
+  // included in the up-front budget and the target floor is allocated like
+  // any other floor in the waterfall.
   const torchReserve = 10;
-  const rushLower = totalRushTorches - rushTorchesPerFloor[targetFloor];
-  let explorationBudget = Math.max(0, torchCount - rushLower - torchReserve);
+  const targetRush = rushTorchesPerFloor[targetFloor];
+  const rushLower = totalRushTorches - targetRush;
+  let explorationBudget = Math.max(0, torchCount - rushLower - targetRush - torchReserve);
 
   const exploreAlloc: Record<number, number> = {};
   for (let f = 1; f <= targetFloor; f++) exploreAlloc[f] = 0;
@@ -178,17 +191,12 @@ export function computeTorchBudget(
     const gridRooms = totalGridRooms(f);
     const rushRooms = rushEventsForFloor(f);
     const availableRooms = Math.max(0, gridRooms - rushRooms);
-    const clearableRooms = Math.floor(availableRooms * clearRate);
+    // Fractional rooms — keep the marginal value smooth across torch upgrades.
+    const clearableRooms = availableRooms * clearRate;
     if (clearableRooms <= 0) continue;
 
-    const reachable = Math.max(1, Math.floor(clearableRooms * clearRate));
-    let torchesNeeded = reachable * (1 - preservation);
-
-    if (f === targetFloor) {
-      const targetRush = rushTorchesPerFloor[targetFloor];
-      const exploreCap = Math.max(0, torchReserve - targetRush);
-      torchesNeeded = Math.min(torchesNeeded, exploreCap);
-    }
+    const reachable = clearableRooms * clearRate;
+    const torchesNeeded = reachable * (1 - preservation);
 
     const alloc = Math.min(torchesNeeded, explorationBudget);
     exploreAlloc[f] = alloc;
@@ -243,14 +251,14 @@ export function computeTorchBudget(
     budget.push({
       floor: f,
       rushEvents: rush,
-      rushTorches: Math.round(rushT * 10) / 10,
-      exploreTorches: Math.round(exploreT * 10) / 10,
-      totalSpend: Math.round(totalSpend * 10) / 10,
+      rushTorches: rushT,
+      exploreTorches: exploreT,
+      totalSpend,
       torchesToFinish: torchesToFinish[f],
       clearRate,
-      expectedTokens: Math.round(expTok * 10) / 10,
-      expectedBoxes: Math.round(expBox * 100) / 100,
-      torchBalance: Math.round(runningBalance),
+      expectedTokens: expTok,
+      expectedBoxes: expBox,
+      torchBalance: runningBalance,
       beaconsUsed: beaconAlloc[f],
       advice,
     });
