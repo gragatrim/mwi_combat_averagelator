@@ -26,6 +26,25 @@ export function getBaseSkillLevels(charData: RawCharData): Record<string, number
   return skills;
 }
 
+/**
+ * Player combat level — the value used by the in-game labyrinth auto-skip
+ * threshold for combat rooms. Skip rule is `room_level <= combat_level + threshold - 1`.
+ *
+ *   combatLevel = 0.1 * (stamina + intelligence + attack + defense + max(melee, ranged, magic))
+ *               + 0.5 * max(attack, defense, melee, ranged, magic)
+ */
+export function computeCombatLevel(baseSkills: Record<string, number>): number {
+  const sta = baseSkills["/skills/stamina"] ?? 0;
+  const int_ = baseSkills["/skills/intelligence"] ?? 0;
+  const atk = baseSkills["/skills/attack"] ?? 0;
+  const def = baseSkills["/skills/defense"] ?? 0;
+  const mel = baseSkills["/skills/melee"] ?? 0;
+  const rng = baseSkills["/skills/ranged"] ?? 0;
+  const mag = baseSkills["/skills/magic"] ?? 0;
+  return 0.1 * (sta + int_ + atk + def + Math.max(mel, rng, mag))
+       + 0.5 * Math.max(atk, def, mel, rng, mag);
+}
+
 /** Get character name */
 export function getCharacterName(charData: RawCharData): string {
   return charData.character?.name ?? "unknown";

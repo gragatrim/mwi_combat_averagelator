@@ -13,6 +13,7 @@ import type {
   SkipRecommendation,
 } from "./types";
 import { FLOORS, PERCOLATION_THRESHOLD, DEFAULT_CRATE_LEVEL_BOOST } from "./constants";
+import { computeCombatLevel } from "./skillBuffs";
 
 function maxClearable(effLevel: number, threshold: number): number {
   return effLevel + threshold - 1;
@@ -66,9 +67,12 @@ export function analyze(
     });
   }
 
-  // Build combat data
+  // Build combat data. The in-game labyrinth auto-skip threshold for combat
+  // rooms is relative to the player's *combat level*, not the per-monster
+  // combat skill level. Compute it once and apply uniformly.
+  const combatLevel = Math.round(computeCombatLevel(baseLevels));
   const combatData: CombatRoomData[] = combatRooms.map(([name, loadout, skillHrid, threshold]) => {
-    const base = baseLevels[skillHrid] ?? 0;
+    const base = combatLevel;
     const eff = effectiveLevel(base);
     let mc = maxClearable(eff, threshold);
     let source: CombatRoomData["source"] = combatSource;
