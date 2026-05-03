@@ -111,6 +111,30 @@ export const LABYRINTH_SKILL_NAMES = [
   "Crafting", "Tailoring", "Cooking", "Brewing", "Alchemy", "Enhancing",
 ];
 
+// Canonical labyrinth combat monster order — matches the in-game labyrinth
+// menu listing. Used to sort every UI section that lists monsters/skills.
+export const LABYRINTH_MONSTER_NAMES = [
+  "Shadow Archer", "Pyre Hunter", "Frost Sniper", "Siren", "Salamander",
+  "Dryad", "Giant Scorpion", "Giant Mantis", "Cyclops", "Mimic",
+];
+
+export const LABYRINTH_MONSTER_HRIDS = LABYRINTH_MONSTER_NAMES.map(
+  (n) => `/monsters/${n.toLowerCase().replace(/ /g, "_")}`
+);
+
+export function labSkillOrder(name: string): number {
+  const i = LABYRINTH_SKILL_NAMES.indexOf(name);
+  return i === -1 ? 999 : i;
+}
+export function labMonsterOrderByName(name: string): number {
+  const i = LABYRINTH_MONSTER_NAMES.indexOf(name);
+  return i === -1 ? 999 : i;
+}
+export function labMonsterOrderByHrid(hrid: string): number {
+  const i = LABYRINTH_MONSTER_HRIDS.indexOf(hrid);
+  return i === -1 ? 999 : i;
+}
+
 export const COMBAT_MONSTER_SKILL: Record<string, string> = {
   shadow_archer: "/skills/magic",
   pyre_hunter: "/skills/magic",

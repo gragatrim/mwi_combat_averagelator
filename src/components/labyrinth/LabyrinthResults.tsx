@@ -8,6 +8,7 @@ import type { LabyrinthResult } from "../../features/labyrinthSimulator";
 import { computeAdjustedLevel, DEFAULT_LEVEL_CV } from "../../features/labyrinthSimulator";
 import { hridToName, formatDuration, nsToSeconds } from "../../utils/formatting";
 import { generateAnalysis, type AnalysisResult } from "../../features/labyrinthAnalyzer";
+import { labMonsterOrderByHrid } from "../../features/labyrinthAnalyzer/constants";
 import LabyrinthAnalysis from "./analysis/LabyrinthAnalysis";
 
 type Tab = "maxLevels" | "analysis";
@@ -34,7 +35,9 @@ export default function LabyrinthResults({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  const sortedResults = [...results].sort((a, b) => b.maxLevel - a.maxLevel);
+  const sortedResults = [...results].sort(
+    (a, b) => labMonsterOrderByHrid(a.monsterHrid) - labMonsterOrderByHrid(b.monsterHrid)
+  );
   const totalLevels = sortedResults.reduce((s, r) => s + r.maxLevel, 0);
 
   const handleGenerateAnalysis = useCallback(() => {

@@ -7,6 +7,8 @@ import type { SkillBuffs } from "./types";
 import {
   DEFAULT_CRATE_LEVEL_BOOST,
   GATHERING_SKILLS,
+  labSkillOrder,
+  labMonsterOrderByName,
 } from "./constants";
 
 // Raw character data types (not the parsed FullCharacterData)
@@ -106,6 +108,11 @@ export function parseLabyrinthSkip(charData: RawCharData): {
       combatRooms.push([display, loadout, combatSkill, threshold]);
     }
   }
+
+  // Sort by canonical in-game labyrinth menu order (not alphabetic), so all
+  // downstream tables/sections render skills + monsters in the same order.
+  skillRooms.sort((a, b) => labSkillOrder(a[0]) - labSkillOrder(b[0]));
+  combatRooms.sort((a, b) => labMonsterOrderByName(a[0]) - labMonsterOrderByName(b[0]));
 
   return {
     skillRooms: skillRooms.length > 0 ? skillRooms : null,

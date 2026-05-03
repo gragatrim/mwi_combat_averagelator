@@ -30,6 +30,7 @@ import type {
 import { serializeCharData } from "../../optimizer/labyrinthOptimizer.worker";
 import type { XpBonusSettings } from "../../hooks/useSimulation";
 import { saveLabJson, loadLabJson } from "../../hooks/usePersistedCharData";
+import { labMonsterOrderByHrid } from "../../features/labyrinthAnalyzer/constants";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -155,7 +156,10 @@ export default function LabyrinthPanel({
 
   // --- Derived data ---
   const labMonsters = useMemo(
-    () => getLabyrinthMonsters(gameData),
+    () =>
+      [...getLabyrinthMonsters(gameData)].sort(
+        (a, b) => labMonsterOrderByHrid(a) - labMonsterOrderByHrid(b)
+      ),
     [gameData]
   );
   const loadouts = charData?.combatLoadouts ?? [];
@@ -163,10 +167,9 @@ export default function LabyrinthPanel({
     loadouts.find((l) => l.id === defaultLoadoutId) ?? null;
 
   const monsterOptions = useMemo(() => {
-    const monsters = getLabyrinthMonsters(gameData);
-    return monsters
-      .map(hrid => ({ value: hrid, label: hridToName(hrid) }))
-      .sort((a, b) => a.label.localeCompare(b.label));
+    return [...getLabyrinthMonsters(gameData)]
+      .sort((a, b) => labMonsterOrderByHrid(a) - labMonsterOrderByHrid(b))
+      .map((hrid) => ({ value: hrid, label: hridToName(hrid) }));
   }, [gameData]);
 
   // --- Parse handler ---
@@ -814,7 +817,7 @@ function LabyrinthOptResults({
 }) {
   const levelDelta = result.optimizedTotalLevels - result.baselineTotalLevels;
   const sortedResults = [...result.monsterResults].sort(
-    (a, b) => b.levelDelta - a.levelDelta || b.optimizedLevel - a.optimizedLevel
+    (a, b) => labMonsterOrderByHrid(a.monsterHrid) - labMonsterOrderByHrid(b.monsterHrid)
   );
 
   return (

@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import type { AnalysisResult } from "../../../features/labyrinthAnalyzer/types";
-import { PERCOLATION_THRESHOLD, LAB_UPGRADE_DISPLAY, LAB_UPGRADE_MAX_LEVEL, LAB_UPGRADE_PER_LEVEL } from "../../../features/labyrinthAnalyzer/constants";
+import { PERCOLATION_THRESHOLD, LAB_UPGRADE_DISPLAY, LAB_UPGRADE_MAX_LEVEL, LAB_UPGRADE_PER_LEVEL, labSkillOrder, labMonsterOrderByName } from "../../../features/labyrinthAnalyzer/constants";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -514,8 +514,13 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {skipRecommendations
-                  .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+                {[...skipRecommendations]
+                  .sort((a, b) => {
+                    if (a.category !== b.category) return a.category === "skill" ? -1 : 1;
+                    return a.category === "skill"
+                      ? labSkillOrder(a.name) - labSkillOrder(b.name)
+                      : labMonsterOrderByName(a.name) - labMonsterOrderByName(b.name);
+                  })
                   .map(r => {
                     const deltaColor = r.delta > 0 ? "text-green-400" : r.delta < 0 ? "text-red-400" : "text-gray-400";
                     return (

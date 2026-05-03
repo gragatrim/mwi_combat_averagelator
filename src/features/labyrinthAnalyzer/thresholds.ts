@@ -77,7 +77,7 @@ export function computeAllSkillThresholds(
     }
   }
 
-  for (const titleName of [...LABYRINTH_SKILL_NAMES].sort()) {
+  for (const titleName of LABYRINTH_SKILL_NAMES) {
     const skillName = titleName.toLowerCase();
     const hrid = `/skills/${skillName}`;
     const base = baseLevels[hrid] ?? 0;
