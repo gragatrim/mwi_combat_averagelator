@@ -65,6 +65,7 @@ function App() {
     communityBuffLevel: 0,
     playerBonuses: [defaultPlayerBonus()],
   });
+  const [ownedBackItemHrids, setOwnedBackItemHrids] = useState<Set<string> | undefined>(undefined);
 
   const primaryConfig = playerConfigs[0] ?? null;
 
@@ -258,12 +259,22 @@ function App() {
                   gameData={gameData}
                   playerConfigs={playerConfigs}
                   onPartyUpdate={handlePartyUpdate}
+                  onGearPoolUpdate={(gearPool) => {
+                    if (gearPool?.has("/equipment_types/back")) {
+                      setOwnedBackItemHrids(
+                        new Set(gearPool.get("/equipment_types/back")!.map((item) => item.hrid))
+                      );
+                    } else {
+                      setOwnedBackItemHrids(undefined);
+                    }
+                  }}
                 />
 
                 {primaryConfig && (
                   <PlayerLoadout
                     player={primaryConfig}
                     gameData={gameData}
+                    ownedBackItemHrids={ownedBackItemHrids}
                     onChange={(updated) => {
                       setPlayerConfigs((prev) => [updated, ...prev.slice(1)]);
                       clearResults();
@@ -350,12 +361,22 @@ function App() {
                   gameData={gameData}
                   playerConfigs={playerConfigs}
                   onPartyUpdate={handlePartyUpdate}
+                  onGearPoolUpdate={(gearPool) => {
+                    if (gearPool?.has("/equipment_types/back")) {
+                      setOwnedBackItemHrids(
+                        new Set(gearPool.get("/equipment_types/back")!.map((item) => item.hrid))
+                      );
+                    } else {
+                      setOwnedBackItemHrids(undefined);
+                    }
+                  }}
                 />
 
                 {primaryConfig && (
                   <PlayerLoadout
                     player={primaryConfig}
                     gameData={gameData}
+                    ownedBackItemHrids={ownedBackItemHrids}
                     onChange={(updated) => {
                       setPlayerConfigs((prev) => [updated, ...prev.slice(1)]);
                       clearZoneRankResults();

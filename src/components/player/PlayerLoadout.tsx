@@ -21,6 +21,8 @@ interface PlayerLoadoutProps {
   player: PlayerConfig;
   gameData: GameData;
   onChange: (updated: PlayerConfig) => void;
+  /** HRIDs of back items the player owns (from gearPool). When provided, shows a "Use owned back items only" checkbox. */
+  ownedBackItemHrids?: Set<string>;
 }
 
 // Ordered list of equipment slots for display
@@ -50,9 +52,11 @@ export default function PlayerLoadout({
   player,
   gameData,
   onChange,
+  ownedBackItemHrids,
 }: PlayerLoadoutProps) {
   // Track which trigger sections are expanded (keyed by "food-0", "drink-1", etc.)
   const [expandedTriggers, setExpandedTriggers] = useState<Record<string, boolean>>({});
+  const [ownedBackItemsOnly, setOwnedBackItemsOnly] = useState(false);
 
   const toggleTrigger = (key: string) => {
     setExpandedTriggers((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -62,10 +66,15 @@ export default function PlayerLoadout({
   const slotOptions = useMemo(() => {
     const map: Record<string, { hrid: string; name: string }[]> = {};
     for (const slot of SLOT_ORDER) {
-      map[slot.slotHrid] = getEquipmentOptionsForSlot(gameData, slot.slotHrid);
+      let options = getEquipmentOptionsForSlot(gameData, slot.slotHrid);
+      // Filter back items to owned-only when checkbox is active
+      if (slot.slotHrid === "/equipment_types/back" && ownedBackItemsOnly && ownedBackItemHrids) {
+        options = options.filter((o) => ownedBackItemHrids.has(o.hrid));
+      }
+      map[slot.slotHrid] = options;
     }
     return map;
-  }, [gameData]);
+  }, [gameData, ownedBackItemsOnly, ownedBackItemHrids]);
 
   const foodOptions = useMemo(() => getConsumableOptions(gameData, "food"), [gameData]);
   const drinkOptions = useMemo(() => getConsumableOptions(gameData, "drink"), [gameData]);
@@ -252,7 +261,20 @@ export default function PlayerLoadout({
 
       {/* Equipment */}
       <div>
-        <h3 className="text-xs font-medium text-gray-400 mb-2">Equipment</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-medium text-gray-400">Equipment</h3>
+          {ownedBackItemHrids && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={ownedBackItemsOnly}
+                onChange={(e) => setOwnedBackItemsOnly(e.target.checked)}
+                className="w-3 h-3 rounded bg-gray-900 border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+              />
+              <span className="text-[10px] text-gray-400">Owned back items only</span>
+            </label>
+          )}
+        </div>
         <div className="space-y-2">
           {visibleSlots.map((slot) => {
             const dto = player.equipment[slot.slotHrid];

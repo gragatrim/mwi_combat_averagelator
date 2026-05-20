@@ -47,6 +47,7 @@ export interface LabOptWorkerStartMessage {
   bestGearMode: BestGearMode;
   useBestAbilities: boolean;
   singleMonsterHrid: string | null;
+  ownedBackOnly: boolean;
 }
 
 export interface LabOptWorkerProgressMessage {
@@ -117,6 +118,7 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
     bestGearMode,
     useBestAbilities,
     singleMonsterHrid,
+    ownedBackOnly,
   } = event.data;
 
   try {
@@ -143,7 +145,8 @@ self.onmessage = (event: MessageEvent<LabOptWorkerStartMessage>) => {
       },
       bestGearMode,
       useBestAbilities,
-      singleMonsterHrid
+      singleMonsterHrid,
+      ownedBackOnly
     );
 
     self.postMessage({

@@ -283,7 +283,8 @@ function buildAllGearPool(
   playerConfig: PlayerConfig,
   gameData: GameData,
   ownedGearPool: Map<string, EquipmentDTO[]>,
-  mode: BestGearMode = "best7"
+  mode: BestGearMode = "best7",
+  ownedBackOnly: boolean = false
 ): Map<string, EquipmentDTO[]> {
   // Build lookup: item hrid → highest owned enhancement level
   const ownedEnhancement = new Map<string, number>();
@@ -335,6 +336,9 @@ function buildAllGearPool(
 
     const isRefined = item.hrid.endsWith("_refined");
     const isOwned = ownedEnhancement.has(item.hrid);
+
+    // When ownedBackOnly is true, skip unowned back items
+    if (ownedBackOnly && slot === "/equipment_types/back" && !isOwned) continue;
 
     if (mode === "best10R") {
       // Skip base items that have a refined counterpart (we'll add the refined one)
@@ -495,7 +499,8 @@ export function optimizeLabyrinthLoadouts(
   onProgress?: (progress: LabyrinthOptProgress) => void,
   bestGearMode: BestGearMode = "owned",
   useBestAbilities: boolean = false,
-  singleMonsterHrid: string | null = null
+  singleMonsterHrid: string | null = null,
+  ownedBackOnly: boolean = false
 ): LabyrinthOptResult {
   const allMonsters = getLabyrinthMonsters(gameData);
   const monsters = singleMonsterHrid 
@@ -508,7 +513,7 @@ export function optimizeLabyrinthLoadouts(
 
   // When bestGearMode is not "owned", build a pool from ALL equippable items
   const gearPool = bestGearMode !== "owned"
-    ? buildAllGearPool(defaultLoadout.config, gameData, charData.gearPool, bestGearMode)
+    ? buildAllGearPool(defaultLoadout.config, gameData, charData.gearPool, bestGearMode, ownedBackOnly)
     : charData.gearPool;
 
   // Collect weapon pool

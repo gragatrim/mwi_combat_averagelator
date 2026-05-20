@@ -6,7 +6,7 @@
 // 2. Full character data (init_character_data) with multiple combat loadouts
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { GameData, PlayerConfig } from "../../engine/types";
+import type { EquipmentDTO, GameData, PlayerConfig } from "../../engine/types";
 import { parsePlayerData, PlayerDataError } from "../../data/playerData";
 import {
   parseFullCharacterData,
@@ -21,6 +21,8 @@ interface PlayerImportProps {
   gameData: GameData;
   playerConfigs: PlayerConfig[];
   onPartyUpdate: (configs: PlayerConfig[]) => void;
+  /** Called when full character data is parsed, providing the gear pool for the primary player. */
+  onGearPoolUpdate?: (gearPool: Map<string, EquipmentDTO[]> | null) => void;
 }
 
 interface SlotState {
@@ -44,6 +46,7 @@ export default function PlayerImport({
   gameData,
   playerConfigs,
   onPartyUpdate,
+  onGearPoolUpdate,
 }: PlayerImportProps) {
   const [slots, setSlots] = useState<SlotState[]>(() => {
     const saved = loadCombatSlots();
@@ -108,6 +111,7 @@ export default function PlayerImport({
           }
 
           const firstLoadout = fullData.combatLoadouts[0];
+          onGearPoolUpdate?.(fullData.gearPool);
           setSlots((prev) => {
             const next = [...prev];
             next[index] = {
@@ -126,6 +130,7 @@ export default function PlayerImport({
         } else {
           // --- Toolasha / combat-sim format ---
           const config = parsePlayerData(slot.jsonText, gameData);
+          onGearPoolUpdate?.(null);
           setSlots((prev) => {
             const next = [...prev];
             next[index] = {
@@ -142,6 +147,7 @@ export default function PlayerImport({
           applyConfig(index, config);
         }
       } catch (e) {
+        onGearPoolUpdate?.(null);
         const message =
           e instanceof PlayerDataError
             ? e.message
@@ -160,7 +166,7 @@ export default function PlayerImport({
         });
       }
     },
-    [slots, gameData, applyConfig]
+    [slots, gameData, applyConfig, onGearPoolUpdate]
   );
 
   const handleLoadoutChange = useCallback(

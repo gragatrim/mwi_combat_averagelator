@@ -152,6 +152,7 @@ export default function LabyrinthPanel({
   const [bestGearMode, setBestGearMode] = useState<BestGearMode>("owned");
   const [useBestAbilities, setUseBestAbilities] = useState(false);
   const [singleMonsterHrid, setSingleMonsterHrid] = useState<string | null>(null);
+  const [ownedBackOnly, setOwnedBackOnly] = useState(false);
   const optWorkerRef = useRef<Worker | null>(null);
 
   // --- Derived data ---
@@ -309,9 +310,10 @@ export default function LabyrinthPanel({
       bestGearMode,
       useBestAbilities,
       singleMonsterHrid,
+      ownedBackOnly,
     };
     worker.postMessage(startMsg);
-  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities, singleMonsterHrid]);
+  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities, singleMonsterHrid, ownedBackOnly]);
 
   const handleCancelOptimize = useCallback(() => {
     if (optWorkerRef.current) {
@@ -679,6 +681,25 @@ export default function LabyrinthPanel({
                   {bestGearMode === "best10R" && "All equippable items at +10, preferring refined versions"}
                 </div>
               </div>
+
+              {/* Owned back items only checkbox */}
+              {bestGearMode !== "owned" && (
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ownedBackOnly}
+                    onChange={(e) => setOwnedBackOnly(e.target.checked)}
+                    disabled={optRunning}
+                    className="mt-0.5 accent-emerald-500"
+                  />
+                  <div>
+                    <div className="text-xs text-gray-300">Owned back items only</div>
+                    <div className="text-[10px] text-gray-500">
+                      Restrict back slot to items from your gear pool
+                    </div>
+                  </div>
+                </label>
+              )}
 
               {/* Best abilities checkbox */}
               <label className="flex items-start gap-2 cursor-pointer">
