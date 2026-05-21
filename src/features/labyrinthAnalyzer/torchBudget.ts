@@ -44,6 +44,53 @@ function regularBoxRate(floor: number): number {
   return Math.min(floor * 0.01, 0.10);
 }
 
+// ---------------------------------------------------------------------------
+// Time estimation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Estimate the time to clear a single floor (rush + exploration).
+ * Rush events are combat encounters; exploration rooms are a mix of skill & combat.
+ */
+function estimateFloorTimeMs(
+  floorNum: number,
+  rushEvents: number,
+  exploreTorches: number,
+  clearRate: number,
+  floorResult: FloorResult | undefined
+): number {
+  const preservation = EXPERT_TORCH_PRESERVATION;
+  const exploreEvents = exploreTorches / (1 - preservation);
+
+  // Rush events: combat encounters along the rush path.
+  // Time scales inversely with clear rate (higher clear rate = faster fights).
+  const rushTimePerEvent = clearRate > 0
+    ? 25_000 + (1 - clearRate) * 60_000
+    : 85_000;
+  const rushTime = rushEvents * rushTimePerEvent;
+
+  // Exploration rooms: weighted average of skill (~15s) and combat (~45s) rooms.
+  // If we have per-room data, weight by actual clear fractions.
+  let avgExploreTime = 30_000; // fallback: 50/50 skill/combat
+  if (floorResult && floorResult.skillFracs.length > 0) {
+    const skillFracs = floorResult.skillFracs;
+    const combatFracs = floorResult.combatFracs;
+    const nSkill = skillFracs.length;
+    const nCombat = combatFracs.length;
+    const nTotal = nSkill + nCombat;
+
+    // Weight by room count and clear fraction.
+    // Skill rooms ~15s, combat rooms ~45s.
+    const skillWeight = nSkill / nTotal;
+    const combatWeight = nCombat / nTotal;
+    avgExploreTime = skillWeight * 15_000 + combatWeight * 45_000;
+  }
+
+  const exploreTime = exploreEvents * avgExploreTime;
+
+  return rushTime + exploreTime;
+}
+
 function allocateBeacons(
   beaconCount: number,
   targetFloor: number,
@@ -214,6 +261,7 @@ export function computeTorchBudget(
   // Build budget entries
   const budget: TorchBudgetEntry[] = [];
   let runningBalance = torchCount;
+  let cumulativeTimeMs = 0;
   const TORCH_CHUNK = 2;
 
   for (let f = 1; f <= targetFloor; f++) {
@@ -248,6 +296,10 @@ export function computeTorchBudget(
         : `Partial (${bStr}~${Math.round(roomsExplored)} rooms)`;
     }
 
+    const floorResult = floorResults?.find(fr => fr.floor === f);
+    const floorTimeMs = estimateFloorTimeMs(f, rush, exploreT, clearRate, floorResult);
+    cumulativeTimeMs += floorTimeMs;
+
     budget.push({
       floor: f,
       rushEvents: rush,
@@ -261,6 +313,8 @@ export function computeTorchBudget(
       torchBalance: runningBalance,
       beaconsUsed: beaconAlloc[f],
       advice,
+      estimatedTimeMs: floorTimeMs,
+      cumulativeTimeMs,
     });
   }
 

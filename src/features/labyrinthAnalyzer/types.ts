@@ -81,6 +81,10 @@ export interface TorchBudgetEntry {
   torchBalance: number;
   beaconsUsed: number;
   advice: string;
+  /** Estimated time to clear this floor (ms), including rush + exploration */
+  estimatedTimeMs: number;
+  /** Cumulative estimated time from F1 to this floor (ms) */
+  cumulativeTimeMs: number;
 }
 
 /** Labyrinth upgrade type identifier (matches keys in LAB_UPGRADE_* maps). */
