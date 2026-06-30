@@ -21,6 +21,7 @@ import {
   getLabyrinthUpgradeLevels,
   getHighestAchievedFloor,
   parseCombatLoadoutProfiles,
+  getLabyrinthCombatLoadoutNameMap,
 } from "./skillBuffs";
 import { computeAllSkillThresholds } from "./thresholds";
 import { analyze, computeBottleneck, computeSkipRecommendations } from "./floorAnalysis";
@@ -57,7 +58,14 @@ export function generateAnalysis(
 
   // Set up skill/combat room data
   const skillRooms = skipSkills ?? FALLBACK_SKILL_ROOMS;
-  const combatRooms = skipCombat ?? FALLBACK_COMBAT_ROOMS;
+  const loadoutNameByMonster = getLabyrinthCombatLoadoutNameMap(rawCharData);
+  const baseCombatRooms = skipCombat ?? FALLBACK_COMBAT_ROOMS;
+  const combatRooms: [string, string, string, number][] = baseCombatRooms.map(
+    ([name, loadout, skillHrid, threshold]) => {
+      const monsterHrid = `/monsters/${name.toLowerCase().replace(/ /g, "_")}`;
+      return [name, loadoutNameByMonster[monsterHrid] || loadout, skillHrid, threshold];
+    }
+  );
   const skillSource = skipSkills ? "in-game" : "hardcoded" as const;
   const combatSource = skipCombat ? "in-game" : "hardcoded" as const;
 

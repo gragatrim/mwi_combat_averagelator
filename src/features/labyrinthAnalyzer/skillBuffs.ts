@@ -7,6 +7,7 @@ import type { SkillBuffs } from "./types";
 import {
   DEFAULT_CRATE_LEVEL_BOOST,
   GATHERING_SKILLS,
+  LABYRINTH_MONSTER_NAMES,
   labSkillOrder,
   labMonsterOrderByName,
 } from "./constants";
@@ -14,6 +15,83 @@ import {
 // Raw character data types (not the parsed FullCharacterData)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawCharData = Record<string, any>;
+
+type RawLoadout = Record<string, unknown>;
+
+function monsterNameToHrid(name: string): string {
+  return `/monsters/${name.toLowerCase().replace(/ /g, "_")}`;
+}
+
+function normalizeLoadoutName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isCombatLoadout(loadout: unknown): loadout is RawLoadout {
+  return !!loadout && typeof loadout === "object" &&
+    (loadout as RawLoadout).actionTypeHrid === "/action_types/combat";
+}
+
+function getLabyrinthCombatLoadoutAssignments(charData: RawCharData): Map<string, RawLoadout> {
+  const result = new Map<string, RawLoadout>();
+  const loadoutMap = charData.characterLoadoutMap;
+  if (!loadoutMap || typeof loadoutMap !== "object") return result;
+
+  const settings = charData.characterSetting;
+  const prefix = "labyrinthLoadout";
+
+  // Preferred source: explicit in-game labyrinthLoadout* settings, when present.
+  if (settings && typeof settings === "object") {
+    for (const [key, value] of Object.entries(settings)) {
+      if (!key.startsWith(prefix) || value == null) continue;
+      if (key.startsWith("labyrinthLoadoutSkip")) continue;
+      const suffix = key.slice(prefix.length);
+      const monsterHrid = `/monsters/${pascalToSnake(suffix)}`;
+      const loadout = (loadoutMap as Record<string, unknown>)[String(value)];
+      if (isCombatLoadout(loadout)) result.set(monsterHrid, loadout);
+    }
+  }
+
+  // Privacy-filtered exports omit characterSetting. Infer lab assignments by
+  // matching combat loadout names to labyrinth monster names.
+  const combatLoadouts = Object.values(loadoutMap as Record<string, unknown>).filter(isCombatLoadout);
+  const normalizedLoadouts = combatLoadouts.map((loadout) => ({
+    loadout,
+    normalizedName: normalizeLoadoutName(String(loadout.name ?? "")),
+  }));
+
+  for (const monsterName of LABYRINTH_MONSTER_NAMES) {
+    const monsterHrid = monsterNameToHrid(monsterName);
+    if (result.has(monsterHrid)) continue;
+
+    const normalizedMonster = normalizeLoadoutName(monsterName);
+    let match = normalizedLoadouts.find((l) => l.normalizedName === normalizedMonster);
+    if (!match) {
+      const containing = normalizedLoadouts.filter((l) =>
+        l.normalizedName.includes(` ${normalizedMonster} `) ||
+        l.normalizedName.startsWith(`${normalizedMonster} `) ||
+        l.normalizedName.endsWith(` ${normalizedMonster}`)
+      );
+      if (containing.length === 1) match = containing[0];
+    }
+    if (match) result.set(monsterHrid, match.loadout);
+  }
+
+  return result;
+}
+
+/** Monster hrid → loadout name, used by floor analysis display. */
+export function getLabyrinthCombatLoadoutNameMap(charData: RawCharData): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [monsterHrid, loadout] of getLabyrinthCombatLoadoutAssignments(charData)) {
+    result[monsterHrid] = String(loadout.name ?? "");
+  }
+  return result;
+}
 
 /** Extract base skill levels from characterSkills array */
 export function getBaseSkillLevels(charData: RawCharData): Record<string, number> {
@@ -385,27 +463,9 @@ export function parseCombatLoadoutProfiles(
   gameData: GameData
 ): Map<string, CombatLoadoutProfile> {
   const result = new Map<string, CombatLoadoutProfile>();
-  const settings = charData.characterSetting;
-  const loadoutMap = charData.characterLoadoutMap;
-  if (!settings || typeof settings !== "object") return result;
-  if (!loadoutMap || typeof loadoutMap !== "object") return result;
+  const assignments = getLabyrinthCombatLoadoutAssignments(charData);
 
-  for (const [key, value] of Object.entries(settings)) {
-    if (!key.startsWith("labyrinthLoadout") || value == null) continue;
-    if (key.startsWith("labyrinthLoadoutSkip")) continue;
-    const suffix = key.slice("labyrinthLoadout".length);
-    const snake = suffix
-      .replace(/([A-Z])/g, "_$1")
-      .toLowerCase()
-      .replace(/^_/, "");
-    const monsterHrid = `/monsters/${snake}`;
-
-    const loadout = (loadoutMap as Record<string, unknown>)[String(value)] as
-      | Record<string, unknown>
-      | undefined;
-    if (!loadout) continue;
-    if (loadout.actionTypeHrid !== "/action_types/combat") continue;
-
+  for (const [monsterHrid, loadout] of assignments) {
     const abilityMap = (loadout.abilityMap ?? {}) as Record<string, string>;
     let damageAbilityCount = 0;
     let totalCastDurationS = 0;

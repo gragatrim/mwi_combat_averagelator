@@ -556,26 +556,89 @@ function parseLabyrinthMonsterLoadouts(
   combatLoadouts: CombatLoadout[]
 ): Record<string, string> {
   const result: Record<string, string> = {};
-  if (!characterSetting || typeof characterSetting !== "object") return result;
-
   const combatLoadoutIds = new Set(combatLoadouts.map((l) => l.id));
   const prefix = "labyrinthLoadout";
 
-  for (const [key, value] of Object.entries(characterSetting)) {
-    if (!key.startsWith(prefix) || value == null) continue;
+  // Preferred source: the game's explicit labyrinthLoadout* settings. Older
+  // exports included characterSetting; privacy-filtered exports may not.
+  if (characterSetting && typeof characterSetting === "object") {
+    for (const [key, value] of Object.entries(characterSetting)) {
+      if (!key.startsWith(prefix) || value == null) continue;
 
-    const suffix = key.slice(prefix.length);
-    // Convert PascalCase to snake_case: "FrostSniper" -> "frost_sniper"
-    const snakeCase = suffix
-      .replace(/([A-Z])/g, "_$1")
-      .toLowerCase()
-      .slice(1); // remove leading underscore
-    const monsterHrid = `/monsters/${snakeCase}`;
-    const loadoutId = String(value);
+      const suffix = key.slice(prefix.length);
+      // Convert PascalCase to snake_case: "FrostSniper" -> "frost_sniper"
+      const snakeCase = suffix
+        .replace(/([A-Z])/g, "_$1")
+        .toLowerCase()
+        .slice(1); // remove leading underscore
+      const monsterHrid = `/monsters/${snakeCase}`;
+      const loadoutId = String(value);
 
-    // Only include if this loadout is a combat loadout
-    if (combatLoadoutIds.has(loadoutId)) {
-      result[monsterHrid] = loadoutId;
+      // Only include if this loadout is a combat loadout
+      if (combatLoadoutIds.has(loadoutId)) {
+        result[monsterHrid] = loadoutId;
+      }
+    }
+  }
+
+  // Fallback for privacy-filtered exports: infer assignments from combat
+  // loadout names. This preserves the common in-game setup where labyrinth
+  // loadouts are named after their monster, e.g. "frost sniper" or "mimic".
+  const inferred = inferLabyrinthMonsterLoadoutsByName(combatLoadouts);
+  for (const [monsterHrid, loadoutId] of Object.entries(inferred)) {
+    if (!result[monsterHrid]) result[monsterHrid] = loadoutId;
+  }
+
+  return result;
+}
+
+const LABYRINTH_MONSTER_NAMES = [
+  "Shadow Archer", "Pyre Hunter", "Frost Sniper", "Siren", "Salamander",
+  "Dryad", "Giant Scorpion", "Giant Mantis", "Cyclops", "Mimic",
+];
+
+function monsterNameToHrid(name: string): string {
+  return `/monsters/${name.toLowerCase().replace(/ /g, "_")}`;
+}
+
+function normalizeLoadoutName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferLabyrinthMonsterLoadoutsByName(
+  combatLoadouts: CombatLoadout[]
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  const normalizedLoadouts = combatLoadouts.map((l) => ({
+    loadout: l,
+    normalizedName: normalizeLoadoutName(l.name),
+  }));
+
+  for (const monsterName of LABYRINTH_MONSTER_NAMES) {
+    const normalizedMonster = normalizeLoadoutName(monsterName);
+
+    // Exact normalized name match first.
+    let match = normalizedLoadouts.find((l) => l.normalizedName === normalizedMonster);
+
+    // If there is no exact match, allow a unique containing match. This covers
+    // names like "lab frost sniper" without accidentally picking ambiguous ones.
+    if (!match) {
+      const containing = normalizedLoadouts.filter((l) =>
+        l.normalizedName.split(" ").includes(normalizedMonster) ||
+        l.normalizedName.includes(` ${normalizedMonster} `) ||
+        l.normalizedName.startsWith(`${normalizedMonster} `) ||
+        l.normalizedName.endsWith(` ${normalizedMonster}`)
+      );
+      if (containing.length === 1) match = containing[0];
+    }
+
+    if (match) {
+      result[monsterNameToHrid(monsterName)] = match.loadout.id;
     }
   }
 
