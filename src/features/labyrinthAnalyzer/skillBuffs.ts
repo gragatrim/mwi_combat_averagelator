@@ -200,16 +200,33 @@ export function parseLabyrinthSkip(charData: RawCharData): {
 
 /** Get labyrinth loadout for a skill */
 function getLabyrinthLoadout(skillName: string, charData: RawCharData): Record<string, unknown> | null {
+  const loadoutMap = charData.characterLoadoutMap ?? {};
+  if (!loadoutMap || typeof loadoutMap !== "object") return null;
+
   const settings = charData.characterSetting ?? {};
   const key = `labyrinthLoadout${skillName}`;
   const loadoutId = settings[key];
-  if (!loadoutId) return null;
 
-  const loadoutMap = charData.characterLoadoutMap ?? {};
-  for (const loadout of Object.values(loadoutMap) as Record<string, unknown>[]) {
-    if (String(loadout.id) === String(loadoutId)) return loadout;
+  if (loadoutId != null) {
+    // Sanitized exports may remove the nested loadout.id field for privacy, but
+    // characterLoadoutMap's keys are the stable IDs referenced by settings.
+    const direct = (loadoutMap as Record<string, unknown>)[String(loadoutId)];
+    if (direct && typeof direct === "object") return direct as Record<string, unknown>;
+
+    // Backward-compatible fallback for older/raw exports where only the nested
+    // id is available or the map key shape differs.
+    for (const loadout of Object.values(loadoutMap) as Record<string, unknown>[]) {
+      if (String(loadout.id) === String(loadoutId)) return loadout;
+    }
   }
-  return null;
+
+  // Last-resort fallback for exports missing characterSetting: choose a unique
+  // loadout with the matching skilling action type.
+  const actionTypeHrid = `/action_types/${skillName.toLowerCase()}`;
+  const matches = (Object.values(loadoutMap) as Record<string, unknown>[]).filter(
+    (loadout) => loadout?.actionTypeHrid === actionTypeHrid
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /** Compute noncombat equipment buffs from a labyrinth loadout */
