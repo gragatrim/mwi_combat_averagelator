@@ -60,7 +60,9 @@ class Equipment {
   }
 
   getFocusTraining(): string {
-    return this.gameItem.equipmentDetail!.combatStats.focusTraining!;
+    // Current item data may omit focusTraining. Such items do not select a
+    // focus-training skill.
+    return this.gameItem.equipmentDetail?.combatStats.focusTraining ?? "";
   }
 }
 

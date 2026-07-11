@@ -104,6 +104,8 @@ export interface UpgradePriorityEntry {
   valuePerToken: number;
   description: string;
   category: UpgradeCategory;
+  /** Tier lookahead used to rank this next level, when applicable. */
+  projectedTier?: { levels: number; cost: number; deltaBoxesMonth: number; valuePerToken: number };
 }
 
 /** Labyrinth upgrade levels */

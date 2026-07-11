@@ -225,9 +225,6 @@ class DeterministicSimulator {
   /** Cumulative overkill time correction (nanoseconds) across all encounters. */
   private cumulativeOverkillTimeNs: number = 0;
 
-  /** Transition time (ns) from the last encounter end — used for pre-casting. */
-  private lastTransitionTimeNs: number = 0;
-
   /** Sim time at the last dungeon completion (for accurate measurement). */
   private lastDungeonCompletionTime: number = 0;
   /** XP snapshot at the last dungeon completion boundary. */
@@ -757,11 +754,10 @@ class DeterministicSimulator {
 
     this.eventQueue.clearEventsOfType(CombatEventType.AbilityCastEnd);
 
-    // Model ability pre-casting during the wave transition
-    if (this.lastTransitionTimeNs > 0) {
-      this.processTransitionPreCasting(this.lastTransitionTimeNs);
-    }
-
+    // Reference startNewEncounter runs trigger evaluation at the encounter
+    // boundary, then starts attacks. This is not pre-casting during the
+    // respawn gap: any cast begins now, after the delay has elapsed.
+    this.checkTriggers();
     this.startAttacks();
   }
 
@@ -951,123 +947,6 @@ class DeterministicSimulator {
       this.addNextAttackEvent(unit);
     }
   }
-
-  // ===========================================================================
-  // Transition Pre-Casting
-  // ===========================================================================
-
-  /**
-   * Simulate ability pre-casting during wave transitions.
-   * In the real game, players cast buff abilities during the gap between waves.
-   * Self-buff effects apply, and trident effects (ripple) trigger per cast.
-   * Damage/debuff effects targeting enemies do NOT apply (no targets).
-   */
-  private processTransitionPreCasting(transitionTimeNs: number): void {
-    if (transitionTimeNs <= 0) return;
-
-    for (const player of this.players) {
-      if (player.combatDetails.currentHitpoints <= 0) continue;
-
-      let elapsedNs = 0;
-
-      // Cast buff abilities sequentially until transition time is used up
-      while (elapsedNs < transitionTimeNs) {
-        let castAbility: Ability | null = null;
-
-        // Find highest-priority castable buff ability (same order as addNextAttackEvent)
-        for (const ability of player.abilities) {
-          if (!ability) continue;
-
-          // Only self-buff abilities can effectively be cast during transition
-          if (!this.isTransitionCastable(ability)) continue;
-
-          // Check cooldown and mana
-          if (!this.canUseAbility(player, ability)) continue;
-
-          // Check if ability triggers (use null for enemy-related params)
-          if (
-            !ability.shouldTrigger(
-              this.simulationTime,
-              player,
-              null,
-              this.players,
-              null
-            )
-          )
-            continue;
-
-          castAbility = ability;
-          break;
-        }
-
-        if (!castAbility) break; // No more abilities to cast
-
-        // Compute cast time
-        let castDuration = castAbility.castDuration;
-        castDuration /= 1 + player.combatDetails.combatStats.castSpeed;
-
-        // Check if cast fits within remaining transition time
-        if (elapsedNs + castDuration > transitionTimeNs) break;
-
-        elapsedNs += castDuration;
-
-        // --- Process ability effects (BUFF ONLY, skip damage/debuff) ---
-        for (const effect of castAbility.abilityEffects) {
-          if (effect.effectType === "/ability_effect_types/buff") {
-            this.processAbilityBuffEffect(player, castAbility, effect);
-          }
-          if (effect.effectType === "/ability_effect_types/spend_hp") {
-            this.processAbilitySpendHpEffect(player, castAbility, effect);
-          }
-          // Skip: damage, heal, debuff, etc. — no targets during transition
-        }
-
-        // Put ability on cooldown and consume mana
-        castAbility.lastUsed = this.simulationTime;
-        const manaCost = castAbility.manaCost;
-        if (manaCost > 0) {
-          player.combatDetails.currentManapoints -= manaCost;
-          this.simResult.addManaUsed(player.hrid, castAbility.hrid, manaCost);
-        }
-
-        // --- Trigger trident ripple effect ---
-        const rippleChance = player.combatDetails.combatStats.ripple;
-        if (rippleChance > 0) {
-          player.addManapoints(rippleChance * 10);
-          const cdReduction = rippleChance * ONE_SECOND * 2;
-          for (const abil of player.abilities) {
-            if (abil && abil.lastUsed) {
-              const remaining =
-                abil.lastUsed + abil.cooldownDuration - this.simulationTime;
-              if (remaining > 0) {
-                abil.lastUsed = Math.max(
-                  abil.lastUsed - cdReduction,
-                  this.simulationTime - abil.cooldownDuration
-                );
-              }
-            }
-          }
-        }
-
-        // Bloom: triggers extra nature damage, but no enemies → skip
-      }
-    }
-  }
-
-  /**
-   * An ability is transition-castable if it has at least one self-targeting
-   * buff or spend_hp effect. Pure damage/debuff abilities are useless without
-   * enemy targets.
-   */
-  private isTransitionCastable(ability: Ability): boolean {
-    return ability.abilityEffects.some(
-      (e) =>
-        (e.effectType === "/ability_effect_types/buff" &&
-          (e.targetType === "self" || e.targetType === "allAllies")) ||
-        e.effectType === "/ability_effect_types/spend_hp"
-    );
-  }
-
   // ===========================================================================
   // Auto Attack (DETERMINISTIC)
   // ===========================================================================
@@ -1093,15 +972,7 @@ class DeterministicSimulator {
     // random targeting without the smooth-distribution artifact that inflates healing.
     let target = aliveTargets[0];
     if (!source.isPlayer && aliveTargets.length > 1) {
-      const dominant = this.getDominantThreatTarget(aliveTargets);
-      if (dominant) {
-        target = dominant;
-      } else {
-        // Round-robin: get and increment counter for this monster
-        const counter = this.monsterTargetCounters.get(source) ?? 0;
-        target = aliveTargets[counter % aliveTargets.length];
-        this.monsterTargetCounters.set(source, counter + 1);
-      }
+      target = this.selectMonsterTarget(source, aliveTargets);
     }
 
     // Deterministic parry: reduces incoming damage and deals counter-damage.
@@ -1176,21 +1047,25 @@ class DeterministicSimulator {
       }
     }
 
-    // Mayhem: on auto-attack miss, chance to retry on the next target.
-    // Each retry independently rolls hit and mayhem. In expected-value terms,
-    // the probability of reaching additional target k (1-indexed) is
-    // [(1 - hitChance) * mayhemChance]^k, and if reached, the expected damage
-    // is hitChance * avgDamage = damageDone (which processAttack already gives).
+    // Mayhem rolls once for this attack.  If it procs, each miss retries the
+    // next target; it does *not* reroll mayhem at every hop.  Thus the first
+    // retry is mayhem × miss and every later retry gains only another miss.
     const mayhemChance = source.combatDetails.combatStats.mayhem;
     if (mayhemChance > 0 && aliveTargets.length > 1) {
-      const missRetryProb =
-        (1 - attackResult.hitChance) * mayhemChance;
-      let retryMult = missRetryProb;
+      const missProbability = 1 - attackResult.hitChance;
+      let retryMult = mayhemChance * missProbability;
       for (const otherTarget of aliveTargets) {
         if (otherTarget === target) continue;
         if (retryMult < 0.001) break;
+
+        // Every retry is a new attack against its own target. Its accuracy,
+        // mitigation and damage can differ from the initial target. The
+        // probability of reaching it is the Mayhem proc times the misses of
+        // all preceding attempts; processAttack already includes this
+        // retry's hit probability in damageDone.
+        const retryResult = CombatUtilities.processAttack(source, otherTarget);
         const mayhemDamage =
-          attackResult.damageDone * retryMult * (1 - parryChance);
+          retryResult.damageDone * retryMult * (1 - parryChance);
         const actualMayhemDamage = Math.min(
           mayhemDamage,
           otherTarget.combatDetails.currentHitpoints
@@ -1220,11 +1095,13 @@ class DeterministicSimulator {
           otherTarget.combatDetails.currentHitpoints = 0;
           this.eventQueue.clearEventsForUnit(otherTarget);
         }
-        retryMult *= missRetryProb;
+        retryMult *= 1 - retryResult.hitChance;
       }
     }
 
-    // Pierce: apply expected damage to subsequent targets
+    // Pierce is a hit-and-pierce chain. The probability of reaching the next
+    // target is this attack's hit × pierce; that target still needs its own
+    // attack calculation (its evasion and mitigation may differ).
     const pierceChance = source.combatDetails.combatStats.pierce;
     if (pierceChance > 0 && aliveTargets.length > 1) {
       let pierceMult = attackResult.hitChance * pierceChance;
@@ -1232,7 +1109,8 @@ class DeterministicSimulator {
         if (nextTarget === target) continue;
         if (pierceMult <= 0.001) break;
 
-        const pierceDamage = attackResult.damageDone * pierceMult;
+        const pierceResult = CombatUtilities.processAttack(source, nextTarget);
+        const pierceDamage = pierceResult.damageDone * pierceMult;
         const actualPierceDamage = Math.min(
           pierceDamage,
           nextTarget.combatDetails.currentHitpoints
@@ -1263,7 +1141,7 @@ class DeterministicSimulator {
           this.eventQueue.clearEventsForUnit(nextTarget);
         }
 
-        pierceMult *= attackResult.hitChance * pierceChance;
+        pierceMult *= pierceResult.hitChance * pierceChance;
       }
     }
 
@@ -1974,7 +1852,8 @@ class DeterministicSimulator {
 
       // Schedule enemy respawn. Dungeon waves transition near-instantly
       // EXCEPT when a dungeon just completed (last wave killed), which
-      // has a 15s restart delay. Regular zones have a 3s respawn delay.
+      // uses the same 3s restart delay as a dungeon wipe. Regular zones also
+      // have a 3s respawn delay (plus optional deterministic calibration).
       let respawnDelay: number;
       if (this.zone.isDungeon) {
         if (this.zone.getCurrentWave() > this.zone.getMaxWaves()) {
@@ -1991,7 +1870,6 @@ class DeterministicSimulator {
           (this.config.encounterTransitionDelay ??
             DEFAULT_ENCOUNTER_TRANSITION_DELAY);
       }
-      this.lastTransitionTimeNs = respawnDelay;
 
       const enemyRespawnEvent = new EnemyRespawnEvent(
         this.simulationTime + respawnDelay
@@ -2039,7 +1917,23 @@ class DeterministicSimulator {
       )
     ) {
       if (this.zone.isDungeon) {
-        this.eventQueue.clear();
+        // A wipe stops active combat, but cooldown-ready and buff-expiration
+        // events continue through the restart delay.  reset(currentTime) then
+        // retains non-expired player buffs/CDs, matching combatSimulator.js.
+        for (const type of [
+          CombatEventType.AutoAttack,
+          CombatEventType.AbilityCastEnd,
+          CombatEventType.DamageOverTime,
+          CombatEventType.ConsumableTick,
+          CombatEventType.RegenTick,
+          CombatEventType.EnrageTick,
+          CombatEventType.StunExpiration,
+          CombatEventType.BlindExpiration,
+          CombatEventType.SilenceExpiration,
+          CombatEventType.AwaitCooldown,
+        ]) {
+          this.eventQueue.clearEventsOfType(type);
+        }
         this.enemies = null;
 
         const combatStartEvent = new CombatStartEvent(
@@ -2513,16 +2407,11 @@ class DeterministicSimulator {
     if (abilityEffect.targetType === "allEnemies") {
       processedTargets = [...aliveTargets];
     } else if (!source.isPlayer && aliveTargets.length > 1) {
-      // Single-target monster ability: round-robin or dominant threat
-      const dominant = this.getDominantThreatTarget(aliveTargets);
-      if (dominant) {
-        processedTargets = [dominant];
-      } else {
-        const counter = this.monsterTargetCounters.get(source) ?? 0;
-        const singleTarget = aliveTargets[counter % aliveTargets.length];
-        this.monsterTargetCounters.set(source, counter + 1);
-        processedTargets = [singleTarget];
-      }
+      // Monster single-target attacks use the same threat-weighted selection
+      // as auto attacks.  The old implementation treated any unique maximum
+      // threat as a taunt, making e.g. 101 vs 100 threat target one player
+      // 100% of the time instead of roughly 50%.
+      processedTargets = [this.selectMonsterTarget(source, aliveTargets)];
     } else {
       // Player ability or single alive target
       processedTargets = [aliveTargets[0]];
@@ -2577,10 +2466,22 @@ class DeterministicSimulator {
         );
       }
 
-      // Apply ability buffs on hit (scaled by hitChance * procScale)
+      // On-hit buffs are random in the source simulator.  Retaining a full
+      // buff whenever its hit probability is non-zero incorrectly makes a
+      // 1% hit behave as a permanent 100% debuff. A scaled buff preserves the
+      // first moment of the active-buff state.
       if (abilityEffect.buffs && attackResult.hitChance > 0) {
+        const applicationProbability = attackResult.hitChance * procScale;
         for (const buff of abilityEffect.buffs) {
-          target.addBuff(buff as unknown as Buff, this.simulationTime);
+          const expectedBuff = Object.assign(
+            Object.create(Object.getPrototypeOf(buff)),
+            buff,
+            {
+              ratioBoost: buff.ratioBoost * applicationProbability,
+              flatBoost: buff.flatBoost * applicationProbability,
+            }
+          ) as Buff;
+          target.addBuff(expectedBuff, this.simulationTime);
           const checkBuffExpirationEvent = new CheckBuffExpirationEvent(
             this.simulationTime + buff.duration,
             target
@@ -2625,10 +2526,10 @@ class DeterministicSimulator {
       }
 
       // Curse (deterministic)
-      this.applyCurse(source, target, attackResult);
+      this.applyCurse(source, target, attackResult, procScale);
 
       // Weaken (deterministic)
-      this.applyWeaken(source, target, attackResult);
+      this.applyWeaken(source, target, attackResult, procScale);
 
       // Thorns
       if (attackResult.thornDamageDone > 0) {
@@ -2696,7 +2597,9 @@ class DeterministicSimulator {
             this.eventQueue.clearEventsForUnit(nextTarget);
           }
 
-          pierceMult *= attackResult.hitChance * abilityEffect.pierceChance;
+          // Reaching the following target requires this chained attack to
+          // hit and pierce. Its hit chance is target-specific.
+          pierceMult *= pierceResult.hitChance * abilityEffect.pierceChance;
         }
       }
 
@@ -2721,9 +2624,12 @@ class DeterministicSimulator {
       for (const target of healTargets.filter(
         (unit) => unit && unit.combatDetails.currentHitpoints > 0
       )) {
-        const amountHealed =
-          CombatUtilities.processHeal(source, abilityEffect, target) *
-          procScale;
+        const amountHealed = CombatUtilities.processHeal(
+          source,
+          abilityEffect,
+          target,
+          procScale
+        );
         this.simResult.addHealingReceived(
           target.hrid,
           ability.hrid,
@@ -2743,17 +2649,20 @@ class DeterministicSimulator {
       )) {
         if (
           !healTarget ||
-          target.combatDetails.currentHitpoints <
-            healTarget.combatDetails.currentHitpoints
+          target.combatDetails.currentHitpoints / target.combatDetails.maxHitpoints <
+            healTarget.combatDetails.currentHitpoints / healTarget.combatDetails.maxHitpoints
         ) {
           healTarget = target;
         }
       }
 
       if (healTarget) {
-        const amountHealed =
-          CombatUtilities.processHeal(source, abilityEffect, healTarget) *
-          procScale;
+        const amountHealed = CombatUtilities.processHeal(
+          source,
+          abilityEffect,
+          healTarget,
+          procScale
+        );
         this.simResult.addHealingReceived(
           healTarget.hrid,
           ability.hrid,
@@ -2764,9 +2673,12 @@ class DeterministicSimulator {
     }
 
     if (abilityEffect.targetType === "self") {
-      const amountHealed =
-        CombatUtilities.processHeal(source, abilityEffect, source) *
-        procScale;
+      const amountHealed = CombatUtilities.processHeal(
+        source,
+        abilityEffect,
+        source,
+        procScale
+      );
       this.simResult.addHealingReceived(
         source.hrid,
         ability.hrid,
@@ -2867,20 +2779,20 @@ class DeterministicSimulator {
   private applyCurse(
     source: CombatUnit,
     target: CombatUnit,
-    attackResult: AttackResult
+    attackResult: AttackResult,
+    applicationScale: number = 1
   ): void {
     if (attackResult.expectedCurseApplied <= 0) return;
 
     const curseExpireTime = 15_000_000_000;
     const curseStatValue = source.combatDetails.combatStats.curse;
 
-    // Probability that curse actually applies this attack:
-    // - Auto-attacks: hitChance (curse always applies on hit, no tenacity)
-    // - Abilities: hitChance * tenacityFactor
-    // expectedCurseApplied = applyChance * curseStatValue
+    // Curse applies on every hit for auto-attacks and abilities; unlike CC,
+    // tenacity does not affect it. expectedCurseApplied is hitChance times
+    // the curse stat.
     const curseApplyChance =
       curseStatValue > 0
-        ? attackResult.expectedCurseApplied / curseStatValue
+        ? (attackResult.expectedCurseApplied / curseStatValue) * applicationScale
         : 0;
 
     // Get current curse state
@@ -2935,9 +2847,10 @@ class DeterministicSimulator {
   private applyWeaken(
     source: CombatUnit,
     target: CombatUnit,
-    attackResult: AttackResult
+    attackResult: AttackResult,
+    applicationScale: number = 1
   ): void {
-    if (attackResult.expectedWeakenApplied <= 0) return;
+    if (attackResult.expectedWeakenApplied * applicationScale <= 0) return;
 
     const weakenExpireTime = 15_000_000_000;
 
@@ -2961,9 +2874,12 @@ class DeterministicSimulator {
     );
 
     // Create new weaken event
+    // Weaken is applied once per damage-effect occurrence.  The expiration
+    // event increments its input by one, so offset the input to preserve the
+    // fractional occurrence probability of Blaze/Bloom proc effects.
     const weakenExpirationEvent = new WeakenExpirationEvent(
       this.simulationTime + weakenExpireTime,
-      weakenAmount,
+      weakenAmount + applicationScale - 1,
       source
     );
 
@@ -3069,8 +2985,7 @@ class DeterministicSimulator {
   /**
    * Compute threat-weight distribution for alive targets.
    * Returns a Map of target → weight where weights sum to 1.0.
-   * If one target has strictly highest threat, they get weight ≈ 1.0.
-   * With equal threat, each gets 1/N.
+   * Every target receives its share of total threat; equal threat gives 1/N.
    */
   private computeThreatWeights(aliveTargets: CombatUnit[]): Map<CombatUnit, number> {
     const weights = new Map<CombatUnit, number>();
@@ -3093,33 +3008,27 @@ class DeterministicSimulator {
   }
 
   /**
-   * Check if threat distribution should use single-target (one dominant target).
-   * Returns the dominant target if one has strictly > 50% of total threat,
-   * otherwise null (meaning distributed targeting should be used).
+   * Select one player using the game's threat distribution without introducing
+   * RNG.  A low-discrepancy sequence gives each target its probability over
+   * repeated attacks while retaining a single real target per attack (important
+   * for heals, deaths and trigger evaluation).
    */
-  private getDominantThreatTarget(aliveTargets: CombatUnit[]): CombatUnit | null {
-    let totalThreat = 0;
-    let maxThreat = -1;
-    let maxTarget = aliveTargets[0];
+  private selectMonsterTarget(
+    source: CombatUnit,
+    aliveTargets: CombatUnit[]
+  ): CombatUnit {
+    const weights = this.computeThreatWeights(aliveTargets);
+    const counter = this.monsterTargetCounters.get(source) ?? 0;
+    this.monsterTargetCounters.set(source, counter + 1);
+
+    // Fractional multiples of the golden ratio are equidistributed in [0, 1).
+    const point = ((counter + 0.5) * 0.6180339887498949) % 1;
+    let cumulative = 0;
     for (const target of aliveTargets) {
-      const threat = target.combatDetails.combatStats.threat;
-      totalThreat += threat;
-      if (threat > maxThreat) {
-        maxThreat = threat;
-        maxTarget = target;
-      }
+      cumulative += weights.get(target) ?? 0;
+      if (point < cumulative) return target;
     }
-    // If one target has strictly more threat than all others combined,
-    // use single-target (they'd get >50% weight anyway)
-    // Check for strict dominance: one target has MORE threat than any other
-    let hasDominant = true;
-    for (const target of aliveTargets) {
-      if (target !== maxTarget && target.combatDetails.combatStats.threat >= maxThreat) {
-        hasDominant = false;
-        break;
-      }
-    }
-    return hasDominant && aliveTargets.length > 1 ? maxTarget : null;
+    return aliveTargets[aliveTargets.length - 1];
   }
 }
 

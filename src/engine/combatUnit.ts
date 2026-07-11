@@ -279,16 +279,14 @@ class CombatUnit {
 
     // Max HP / MP
     this.combatDetails.maxHitpoints = Math.floor(
-      10 *
-        (10 + this.combatDetails.staminaLevel) *
-        (1 + this.combatDetails.combatStats.maxHitpointsRatio) +
-        this.combatDetails.combatStats.maxHitpoints
+      (10 * (10 + this.combatDetails.staminaLevel) +
+        this.combatDetails.combatStats.maxHitpoints) *
+        (1 + this.combatDetails.combatStats.maxHitpointsRatio)
     );
     this.combatDetails.maxManapoints = Math.floor(
-      10 *
-        (10 + this.combatDetails.intelligenceLevel) *
-        (1 + this.combatDetails.combatStats.maxManapointsRatio) +
-        this.combatDetails.combatStats.maxManapoints
+      (10 * (10 + this.combatDetails.intelligenceLevel) +
+        this.combatDetails.combatStats.maxManapoints) *
+        (1 + this.combatDetails.combatStats.maxManapointsRatio)
     );
 
     // Fury boosts
@@ -567,10 +565,35 @@ class CombatUnit {
   // Buff management
   // ---------------------------------------------------------------------------
 
+  addBuffs(buffs: Buff[], currentTime: number): void {
+    let needUpdate = false;
+    for (const buff of buffs) {
+      buff.startTime = currentTime;
+      const existing = this.combatBuffs[buff.uniqueHrid];
+      if (
+        !existing ||
+        existing.ratioBoost !== buff.ratioBoost ||
+        existing.flatBoost !== buff.flatBoost
+      ) {
+        needUpdate = true;
+      }
+      this.combatBuffs[buff.uniqueHrid] = buff;
+    }
+    if (needUpdate) this.updateCombatDetails();
+  }
+
   addBuff(buff: Buff, currentTime: number): void {
-    buff.startTime = currentTime;
-    this.combatBuffs[buff.uniqueHrid] = buff;
-    this.updateCombatDetails();
+    this.addBuffs([buff], currentTime);
+  }
+
+  removeBuffs(buffs: Buff[]): void {
+    let needUpdate = false;
+    for (const buff of buffs) {
+      if (!this.combatBuffs[buff.uniqueHrid]) continue;
+      delete this.combatBuffs[buff.uniqueHrid];
+      needUpdate = true;
+    }
+    if (needUpdate) this.updateCombatDetails();
   }
 
   removeBuff(buff: Buff): void {
@@ -682,9 +705,16 @@ class CombatUnit {
 
   reset(currentTime: number = 0): void {
     this.clearCCs();
-    this.clearBuffs();
-    this.updateCombatDetails();
-    this.resetCooldowns(currentTime);
+
+    // A dungeon wipe resets monsters completely, but players retain active
+    // buffs and cooldown progress; only buffs that elapsed during the restart
+    // delay are removed. This matches combatUnit.js#reset.
+    if (currentTime === 0 || !this.isPlayer) {
+      this.clearBuffs();
+      this.resetCooldowns(currentTime);
+    } else {
+      this.removeExpiredBuffs(currentTime);
+    }
 
     this.combatDetails.currentHitpoints = this.combatDetails.maxHitpoints;
     this.combatDetails.currentManapoints = this.combatDetails.maxManapoints;

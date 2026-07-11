@@ -385,9 +385,14 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
       {/* ============================================================== */}
       {/* Section 5: Upgrade Priority                                    */}
       {/* ============================================================== */}
-      {upgradePriority && upgradePriority.length > 0 && upgradeLevels && (
+      {upgradePriority && upgradeLevels && (
         <Section title="Upgrade Priority" defaultOpen={false}>
           <UpgradeStatusGrid levels={upgradeLevels} />
+          {upgradePriority.length === 0 ? (
+            <p className="mt-3 text-xs text-gray-400">
+              No positive economic upgrades are available at the modeled target. Upgrade status remains shown above; Full Auto and Experience are quality-of-life upgrades.
+            </p>
+          ) : <>
           <div className="overflow-x-auto mt-3">
             <table className="w-full text-xs">
               <thead>
@@ -398,6 +403,7 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
                   <th className="text-right px-2 py-1 font-medium">Cost</th>
                   <th className="text-right px-2 py-1 font-medium">+Box/mo</th>
                   <th className="text-right px-2 py-1 font-medium">Val/1kT</th>
+                  <th className="text-right px-2 py-1 font-medium">Projected tier</th>
                   <th className="text-left px-2 py-1 font-medium">Description</th>
                 </tr>
               </thead>
@@ -412,6 +418,9 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
                       <td className="px-2 py-1 text-gray-500">{i + 1}</td>
                       <td className="px-2 py-1 text-gray-300 font-medium">
                         {display?.name ?? e.type} +{e.level}
+                        {e.deltaBoxesMonth === 0 && e.projectedTier && (
+                          <span className="ml-1 text-[9px] font-normal text-amber-300">investment step</span>
+                        )}
                       </td>
                       <td className="px-2 py-1 text-center">{categoryBadge(e.category)}</td>
                       <td className="px-2 py-1 text-right text-gray-400">{e.cost}</td>
@@ -419,6 +428,11 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
                         {e.deltaBoxesMonth > 0 ? "+" : ""}{e.deltaBoxesMonth.toFixed(1)}
                       </td>
                       <td className="px-2 py-1 text-right text-gray-400">{e.valuePerToken.toFixed(2)}</td>
+                      <td className="px-2 py-1 text-right text-gray-400 text-[10px]">
+                        {e.projectedTier
+                          ? `+${e.projectedTier.levels}: +${e.projectedTier.deltaBoxesMonth.toFixed(1)} / ${e.projectedTier.cost}T (${e.projectedTier.valuePerToken.toFixed(2)}/1kT)`
+                          : "—"}
+                      </td>
                       <td className="px-2 py-1 text-left text-gray-500 text-[10px]">{e.description}</td>
                     </tr>
                   );
@@ -427,8 +441,9 @@ export default function LabyrinthAnalysis({ analysis }: Props) {
             </table>
           </div>
           <div className="text-[10px] text-gray-500 mt-2">
-            Box/mo and Val/1kT are heuristics — capacity upgrades use direct torch-budget math; skill/combat upgrades approximate a +1 effective level per +1% boost. XP and full-auto have no box value but are listed for completeness.
+            Rankings use boxes/month per token: ordinary rows use the immediate single-level ROI shown; tier rows are ranked by the explicitly shown projected multi-level ROI while +Box/mo remains the immediate benefit. Rows marked investment step have no immediate box gain, but are recommended as part of the projected tier. Exit rewards are weighted by modeled chance to reach each floor. Combat rows require simulator data; Full Auto and Experience remain in the status grid only.
           </div>
+          </>}
         </Section>
       )}
 

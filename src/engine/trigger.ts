@@ -143,16 +143,22 @@ class Trigger {
         ).length;
         break;
       case "/combat_trigger_conditions/lowest_hp_percentage":
+        // The authority ignores dead units for aggregate value conditions;
+        // a dead ally must not make an otherwise healthy party appear to be
+        // at 0% HP. (Active/dead unit counts above intentionally include all.)
         dependencyValue =
-          dependency.reduce((prev, curr) => {
-            const currentHpPercentage =
-              curr.combatDetails.currentHitpoints /
-              curr.combatDetails.maxHitpoints;
-            return currentHpPercentage < prev ? currentHpPercentage : prev;
-          }, 2) * 100;
+          dependency
+            .filter((unit) => unit.combatDetails.currentHitpoints > 0)
+            .reduce((prev, curr) => {
+              const currentHpPercentage =
+                curr.combatDetails.currentHitpoints /
+                curr.combatDetails.maxHitpoints;
+              return currentHpPercentage < prev ? currentHpPercentage : prev;
+            }, 2) * 100;
         break;
       default:
         dependencyValue = dependency
+          .filter((unit) => unit.combatDetails.currentHitpoints > 0)
           .map((unit) => this.getDependencyValue(unit, currentTime))
           .reduce<number>((prev, cur) => prev + Number(cur), 0);
         break;

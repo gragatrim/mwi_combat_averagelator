@@ -28,7 +28,7 @@ import {
   FLOOR_EXIT_REWARDS,
 } from "./constants";
 import { computeTorchBudget } from "./torchBudget";
-import { floorClearFraction } from "./floorAnalysis";
+import { clampTargetFloor, floorClearFraction, computeLabyrinthTargetFloor } from "./floorAnalysis";
 
 // =============================================================================
 // Combat upgrade approximation (per-room, build-aware)
@@ -77,17 +77,20 @@ function combatRoomNameToHrid(displayName: string): string {
 // Helpers
 // =============================================================================
 
-function computeTargetFloor(maxFloorNoShrouds: number, shroudCount: number): number {
-  const base = maxFloorNoShrouds;
-  if (shroudCount >= 8) return base + 3;
-  if (shroudCount >= 5) return base + 2;
-  return base + 1;
-}
-
-function exitBoxesUpTo(floor: number): number {
-  let s = 0;
-  for (let f = 4; f <= floor; f++) s += FLOOR_EXIT_REWARDS[f]?.[1] ?? 0;
-  return s;
+/**
+ * Exit boxes are weighted by the chance of reaching each exit: the product of
+ * modeled per-floor clear rates through that floor. This intentionally simple
+ * independence model is used for both baseline and hypothetical states.
+ */
+export function expectedExitBoxes(targetFloor: number, floorResults: FloorResult[]): number {
+  const clampedTarget = Math.floor(clampTargetFloor(targetFloor));
+  let reached = 1;
+  let boxes = 0;
+  for (let floor = 1; floor <= clampedTarget; floor++) {
+    reached *= floorResults.find(f => f.floor === floor)?.overall ?? 0;
+    if (floor >= 4) boxes += reached * (FLOOR_EXIT_REWARDS[floor]?.[1] ?? 0);
+  }
+  return boxes;
 }
 
 function buildFloorResults(
@@ -124,7 +127,7 @@ function computeBoxesPerRun(
   beaconCount: number,
 ): number {
   const budget = computeTorchBudget(torchCount, targetFloor, floorResults, beaconCount);
-  const exitBoxes = exitBoxesUpTo(targetFloor);
+  const exitBoxes = expectedExitBoxes(targetFloor, floorResults);
   const detourBoxes = budget.reduce((s, b) => s + b.expectedBoxes, 0);
   return exitBoxes + detourBoxes;
 }
@@ -201,7 +204,7 @@ function mvCooldown(
 function mvShroud(
   simLevels: UpgradeLevels,
   baselineFloorResults: FloorResult[],
-  targetFloorOverride: number | null,
+  highestAchievedFloor: number,
   maxFloorNoShrouds: number,
   torchCount: number,
   beaconCount: number,
@@ -210,8 +213,8 @@ function mvShroud(
   if (simLevels.shroud >= LAB_UPGRADE_MAX_LEVEL.shroud) return null;
   const oldS = 4 + simLevels.shroud * LAB_UPGRADE_PER_LEVEL.shroud;
   const newS = oldS + LAB_UPGRADE_PER_LEVEL.shroud;
-  const oldTarget = targetFloorOverride ?? computeTargetFloor(maxFloorNoShrouds, oldS);
-  const newTarget = targetFloorOverride ?? computeTargetFloor(maxFloorNoShrouds, newS);
+  const oldTarget = computeLabyrinthTargetFloor(maxFloorNoShrouds, oldS, highestAchievedFloor);
+  const newTarget = computeLabyrinthTargetFloor(maxFloorNoShrouds, newS, highestAchievedFloor);
 
   let dbm: number;
   let desc: string;
@@ -271,7 +274,7 @@ function mvBeacon(
 
 /**
  * Evaluate a hypothetical skill-upgrade state. Returns the dbm and the
- * hybrid score for "buying levels from cur+1 up to targetLevel" of `type`.
+ * projected boxes-per-token score for "buying levels from cur+1 up to targetLevel" of `type`.
  *
  * Tier evaluation matters because SR / DP are step-function: a single +0.5%
  * SR rarely flips any skill room's maxClearable, but +3% (6 levels) often
@@ -293,6 +296,7 @@ function evalSkillTier(
   runsPerMonth: number,
   baselineBoxesPerRun: number,
   skillDataCache: Map<string, SkillRoomData[]>,
+  currentCombatBoost: number[],
 ): { dbm: number; cost: number; levels: number } {
   const overrides: SkillUpgradeOverrideLevels = {
     skillSpeed: simLevels.skillSpeed,
@@ -310,7 +314,7 @@ function evalSkillTier(
   }
 
   const skillForFloor = newSkillData.length > 0 ? newSkillData : baselineSkillData;
-  const newFr = buildFloorResults(skillForFloor, combatData, 0);
+  const newFr = buildFloorResults(skillForFloor, combatData, currentCombatBoost);
   const newBoxes = computeBoxesPerRun(targetFloor, newFr, torchCount, beaconCount);
   const dbm = Math.max(0, (newBoxes - baselineBoxesPerRun) * runsPerMonth);
 
@@ -324,7 +328,7 @@ function evalSkillTier(
  * Skill upgrade marginal value with TIER LOOKAHEAD.
  *
  * We evaluate buying +1, half-way to max, and full-way to max for the type.
- * The hybrid score is the maximum of (dbm × √(1000/cost)) across these
+ * The projected ROI is the maximum of (dbm / cost) across these
  * lookahead depths — so a type whose first level is noise but whose full
  * tier is a big shift gets its long-tail credit. The emitted entry is always
  * the next single level (we still commit one level at a time so the user
@@ -343,6 +347,7 @@ function mvSkill(
   runsPerMonth: number,
   baselineBoxesPerRun: number,
   skillDataCache: Map<string, SkillRoomData[]>,
+  currentCombatBoost: number[],
 ): { entry: UpgradePriorityEntry; tierScore: number } | null {
   const lv = (simLevels as unknown as Record<string, number>)[type] ?? 0;
   if (lv >= LAB_UPGRADE_MAX_LEVEL[type]) return null;
@@ -363,10 +368,10 @@ function mvSkill(
     const { dbm, cost, levels } = evalSkillTier(
       type, target, simLevels, combatData, recomputeSkillData,
       baselineSkillData, targetFloor, torchCount, beaconCount,
-      runsPerMonth, baselineBoxesPerRun, skillDataCache,
+      runsPerMonth, baselineBoxesPerRun, skillDataCache, currentCombatBoost,
     );
     if (target === lv + 1) singleDbm = dbm;
-    const score = cost > 0 ? dbm * Math.sqrt(1000 / cost) : 0;
+    const score = cost > 0 ? dbm / cost : 0;
     if (score > bestTierScore) {
       bestTierScore = score;
       bestTierDbm = dbm;
@@ -383,11 +388,15 @@ function mvSkill(
   const newPctStr = type === "skillSuccess" ? newPct.toFixed(1) : Math.round(newPct).toString();
   let desc = `${display.name} +${newPctStr}%.`;
   if (bestTierLevels > 1 && bestTierDbm > singleDbm * 1.5) {
-    desc += ` (tier +${bestTierLevels} → ${bestTierDbm.toFixed(1)} dbm @ ${bestTierCost}T)`;
+    desc += ` Investment step: tier +${bestTierLevels} → ${bestTierDbm.toFixed(1)} dbm @ ${bestTierCost}T.`;
   }
   const entry = makeEntry(type, lv + 1, singleDbm, desc);
   // Override valuePerToken using single cost; tierScore is what greedy uses.
   entry.cost = singleCost;
+  if (bestTierLevels > 1) entry.projectedTier = {
+    levels: bestTierLevels, cost: bestTierCost, deltaBoxesMonth: Math.round(bestTierDbm * 100) / 100,
+    valuePerToken: bestTierCost > 0 ? Math.round((bestTierDbm / bestTierCost) * 1000 * 100) / 100 : 0,
+  };
   return { entry, tierScore: bestTierScore };
 }
 
@@ -409,6 +418,7 @@ function evalCombatTier(
   beaconCount: number,
   runsPerMonth: number,
   baselineBoxesPerRun: number,
+  currentCombatBoost: number[],
 ): { dbm: number; cost: number; levels: number; perRoomBoostUnit: number[] } {
   const curLv = (simLevels as unknown as Record<string, number>)[type] ?? 0;
   const levels = targetLevel - curLv;
@@ -416,7 +426,7 @@ function evalCombatTier(
     const profile = combatLoadoutProfiles?.get(combatRoomNameToHrid(c.name)) ?? null;
     return combatBoostPerRoom(type, profile);
   });
-  const perRoomBoost = perRoomBoostUnit.map(b => b * levels);
+  const perRoomBoost = perRoomBoostUnit.map((b, i) => (currentCombatBoost[i] ?? 0) + b * levels);
   const newFr = buildFloorResults(skillData, combatData, perRoomBoost);
   const newBoxes = computeBoxesPerRun(targetFloor, newFr, torchCount, beaconCount);
   const dbm = Math.max(0, (newBoxes - baselineBoxesPerRun) * runsPerMonth);
@@ -443,6 +453,7 @@ function mvCombat(
   beaconCount: number,
   runsPerMonth: number,
   baselineBoxesPerRun: number,
+  currentCombatBoost: number[],
 ): { entry: UpgradePriorityEntry; tierScore: number } | null {
   const lv = (simLevels as unknown as Record<string, number>)[type] ?? 0;
   if (lv >= LAB_UPGRADE_MAX_LEVEL[type]) return null;
@@ -463,10 +474,11 @@ function mvCombat(
     const { dbm, cost, levels, perRoomBoostUnit } = evalCombatTier(
       type, target, simLevels, skillData, combatData, combatLoadoutProfiles,
       targetFloor, torchCount, beaconCount, runsPerMonth, baselineBoxesPerRun,
+      currentCombatBoost,
     );
     if (target === lv + 1) singleDbm = dbm;
     perRoomUnit = perRoomBoostUnit;
-    const score = cost > 0 ? dbm * Math.sqrt(1000 / cost) : 0;
+    const score = cost > 0 ? dbm / cost : 0;
     if (score > bestTierScore) {
       bestTierScore = score;
       bestTierDbm = dbm;
@@ -484,22 +496,14 @@ function mvCombat(
   const avgBoost = perRoomUnit.reduce((a, b) => a + b, 0) / perRoomUnit.length;
   let desc = `${display.name} +${Math.round(newPct)}% (avg ${avgBoost.toFixed(2)} lv/room).`;
   if (bestTierLevels > 1 && bestTierDbm > singleDbm * 1.5) {
-    desc += ` (tier +${bestTierLevels} → ${bestTierDbm.toFixed(1)} dbm @ ${bestTierCost}T)`;
+    desc += ` Investment step: tier +${bestTierLevels} → ${bestTierDbm.toFixed(1)} dbm @ ${bestTierCost}T.`;
   }
   const entry = makeEntry(type, lv + 1, singleDbm, desc);
+  if (bestTierLevels > 1) entry.projectedTier = {
+    levels: bestTierLevels, cost: bestTierCost, deltaBoxesMonth: Math.round(bestTierDbm * 100) / 100,
+    valuePerToken: bestTierCost > 0 ? Math.round((bestTierDbm / bestTierCost) * 1000 * 100) / 100 : 0,
+  };
   return { entry, tierScore: bestTierScore };
-}
-
-function mvFullAuto(simLevels: UpgradeLevels): UpgradePriorityEntry | null {
-  if (simLevels.fullAuto >= LAB_UPGRADE_MAX_LEVEL.fullAuto) return null;
-  const newLv = simLevels.fullAuto + 1;
-  return makeEntry("fullAuto", newLv, 0, `Auto-completes ${newLv} floors. Time saver, no box gain.`);
-}
-
-function mvExperience(simLevels: UpgradeLevels): UpgradePriorityEntry | null {
-  if (simLevels.experience >= LAB_UPGRADE_MAX_LEVEL.experience) return null;
-  const newLv = simLevels.experience + 1;
-  return makeEntry("experience", newLv, 0, `+${newLv}% combat XP in lab. No box gain.`);
 }
 
 // =============================================================================
@@ -508,7 +512,7 @@ function mvExperience(simLevels: UpgradeLevels): UpgradePriorityEntry | null {
 
 export function computeUpgradeOrder(
   upgradeLevels: UpgradeLevels,
-  targetFloorOverride: number | null,
+  highestAchievedFloor: number | null,
   baselineFloorResults: FloorResult[],
   maxFloorNoShrouds: number,
   baselineSkillData: SkillRoomData[],
@@ -528,6 +532,9 @@ export function computeUpgradeOrder(
   // capacity, cooldown, beacon, shroud, and combat candidates all see the same
   // up-to-date baseline.
   let currentSkillData = baselineSkillData;
+  // This starts at zero because simulated combat data already includes owned
+  // upgrades; it tracks only purchases made while generating this order.
+  const currentCombatBoost = baselineCombatData.map(() => 0);
   let currentFloorResults = baselineFloorResults;
   let lastSkillSig = `${simLevels.skillSpeed},${simLevels.skillEfficiency},${simLevels.skillSuccess},${simLevels.skillDoubleProgress}`;
 
@@ -552,7 +559,8 @@ export function computeUpgradeOrder(
         }
         if (cached.length > 0) currentSkillData = cached;
       }
-      currentFloorResults = buildFloorResults(currentSkillData, baselineCombatData, 0);
+      // A skill refresh must retain combat purchases selected in earlier iterations.
+      currentFloorResults = buildFloorResults(currentSkillData, baselineCombatData, currentCombatBoost);
       lastSkillSig = sig;
     }
 
@@ -560,24 +568,23 @@ export function computeUpgradeOrder(
     const beaconCount = 5 + simLevels.beacon * LAB_UPGRADE_PER_LEVEL.beacon;
     const cdHours = 72 + simLevels.cooldown * LAB_UPGRADE_PER_LEVEL.cooldown;
     const shroudCount = 4 + simLevels.shroud * LAB_UPGRADE_PER_LEVEL.shroud;
-    const target = targetFloorOverride ?? computeTargetFloor(maxFloorNoShrouds, shroudCount);
+    const target = computeLabyrinthTargetFloor(maxFloorNoShrouds, shroudCount, highestAchievedFloor ?? 0);
     const runsPerMonth = (30 * 24) / Math.max(1, cdHours);
 
     const baselineBoxes = computeBoxesPerRun(target, currentFloorResults, torchCount, beaconCount);
 
     // Build candidate list. Each candidate has an entry plus a `tierScore`
-    // that drives selection. For capacity upgrades the tierScore equals the
-    // single-level hybrid score (no useful lookahead since each level is
-    // independent). For skill / combat upgrades the tierScore is the BEST
-    // hybrid across {+1, half-tier, full-tier} — this captures the case
+    // that drives selection. For capacity upgrades it is immediate boxes/token.
+    // For skill / combat upgrades it is the best projected tier boxes/token
+    // across {+1, half-tier, full-tier} — this captures the case
     // where +1 level looks like noise but a multi-level investment moves
     // the needle (SR / DP especially).
     interface Candidate { entry: UpgradePriorityEntry; tierScore: number }
     const candidates: Candidate[] = [];
-    const singleHybrid = (e: UpgradePriorityEntry) =>
-      e.cost > 0 ? e.deltaBoxesMonth * Math.sqrt(1000 / e.cost) : 0;
+    const immediateRoi = (e: UpgradePriorityEntry) =>
+      e.cost > 0 ? e.deltaBoxesMonth / e.cost : 0;
     const pushSingle = (e: UpgradePriorityEntry | null) => {
-      if (e) candidates.push({ entry: e, tierScore: singleHybrid(e) });
+      if (e) candidates.push({ entry: e, tierScore: immediateRoi(e) });
     };
     const pushTier = (r: { entry: UpgradePriorityEntry; tierScore: number } | null) => {
       if (r) candidates.push(r);
@@ -585,25 +592,26 @@ export function computeUpgradeOrder(
 
     pushSingle(mvTorch(simLevels, currentFloorResults, target, runsPerMonth, beaconCount));
     pushSingle(mvCooldown(simLevels, baselineBoxes));
-    pushSingle(mvShroud(simLevels, currentFloorResults, targetFloorOverride, maxFloorNoShrouds, torchCount, beaconCount, runsPerMonth));
+    pushSingle(mvShroud(simLevels, currentFloorResults, highestAchievedFloor ?? 0, maxFloorNoShrouds, torchCount, beaconCount, runsPerMonth));
     pushSingle(mvBeacon(simLevels, currentFloorResults, target, torchCount, beaconCount, runsPerMonth));
 
     for (const t of ["skillSpeed", "skillEfficiency", "skillSuccess", "skillDoubleProgress"] as UpgradeType[]) {
       pushTier(mvSkill(
         t, simLevels, baselineCombatData, recomputeSkillData ?? null,
         currentSkillData, target, torchCount, beaconCount, runsPerMonth,
-        baselineBoxes, skillDataCache,
+        baselineBoxes, skillDataCache, currentCombatBoost,
       ));
     }
-    for (const t of ["combatDamage", "attackSpeed", "castSpeed", "criticalRate"] as UpgradeType[]) {
+    // Fallback thresholds are not a sufficiently precise combat model for
+    // economic combat recommendations; only rank combat with simulator data.
+    if (baselineCombatData.length > 0 && baselineCombatData.every(c => c.source === "simulated")) for (const t of ["combatDamage", "attackSpeed", "castSpeed", "criticalRate"] as UpgradeType[]) {
       pushTier(mvCombat(
         t, simLevels, currentSkillData, baselineCombatData,
         combatLoadoutProfiles ?? null, target,
-        torchCount, beaconCount, runsPerMonth, baselineBoxes,
+        torchCount, beaconCount, runsPerMonth, baselineBoxes, currentCombatBoost,
       ));
     }
-    pushSingle(mvFullAuto(simLevels));
-    pushSingle(mvExperience(simLevels));
+
 
     if (candidates.length === 0) break;
 
@@ -619,14 +627,9 @@ export function computeUpgradeOrder(
     // (e.g. SR +7 alone does nothing but SR +7..+12 moves rooms). The tier
     // score reflects that.
     const significant = candidates.filter(c => c.tierScore > 0);
-    if (significant.length === 0) {
-      const fallback = candidates.reduce((a, b) =>
-        b.entry.deltaBoxesMonth > a.entry.deltaBoxesMonth ? b : a
-      );
-      order.push(fallback.entry);
-      (simLevels as unknown as Record<string, number>)[fallback.entry.type] = fallback.entry.level;
-      continue;
-    }
+    // Stop once no purchase has a positive economic return; do not pad the
+    // recommendation list with zero-value or QoL upgrades.
+    if (significant.length === 0) break;
 
     const best = significant.reduce((a, b) => {
       if (b.tierScore !== a.tierScore) return b.tierScore > a.tierScore ? b : a;
@@ -636,6 +639,14 @@ export function computeUpgradeOrder(
 
     order.push(best.entry);
     (simLevels as unknown as Record<string, number>)[best.entry.type] = best.entry.level;
+    if (best.entry.category === "combat") {
+      const profileBoost = baselineCombatData.map(c => {
+        const profile = combatLoadoutProfiles?.get(combatRoomNameToHrid(c.name)) ?? null;
+        return combatBoostPerRoom(best.entry.type, profile);
+      });
+      for (let room = 0; room < currentCombatBoost.length; room++) currentCombatBoost[room] += profileBoost[room];
+      currentFloorResults = buildFloorResults(currentSkillData, baselineCombatData, currentCombatBoost);
+    }
   }
 
   return order;

@@ -24,7 +24,7 @@ import {
   getLabyrinthCombatLoadoutNameMap,
 } from "./skillBuffs";
 import { computeAllSkillThresholds } from "./thresholds";
-import { analyze, computeBottleneck, computeSkipRecommendations } from "./floorAnalysis";
+import { analyze, computeBottleneck, computeSkipRecommendations, computeLabyrinthTargetFloor } from "./floorAnalysis";
 import { computeTorchBudget } from "./torchBudget";
 import { computeUpgradeOrder, type RecomputeSkillData } from "./upgradeOrder";
 
@@ -101,13 +101,8 @@ export function generateAnalysis(
   // they can reach a higher floor than the formula predicts.
   const shroudCount = resources.shroud;
   const mf = results.maxFloorNoShrouds;
-  let calculatedTarget: number;
-  if (shroudCount >= 8) calculatedTarget = mf + 3;
-  else if (shroudCount >= 5) calculatedTarget = mf + 2;
-  else calculatedTarget = mf + 1;
-
   const achievedFloor = getHighestAchievedFloor(rawCharData);
-  const targetFloor = Math.max(calculatedTarget, achievedFloor);
+  const targetFloor = computeLabyrinthTargetFloor(mf, shroudCount, achievedFloor);
 
   const bottleneck = computeBottleneck(
     results.skillData, results.combatData, results.floorResults, targetFloor
@@ -128,7 +123,7 @@ export function generateAnalysis(
   // credit for cast speed, etc.
   const combatLoadoutProfiles = parseCombatLoadoutProfiles(rawCharData, gameData);
   const upgradePriority = computeUpgradeOrder(
-    upgradeLevels, null, results.floorResults, mf,
+    upgradeLevels, achievedFloor, results.floorResults, mf,
     results.skillData, results.combatData,
     calcSkillData.length > 0 ? recomputeSkillData : null,
     combatLoadoutProfiles,

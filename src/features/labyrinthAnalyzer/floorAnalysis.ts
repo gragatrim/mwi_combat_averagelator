@@ -23,6 +23,25 @@ function effectiveLevel(base: number, crateBoost: number = DEFAULT_CRATE_LEVEL_B
   return base + crateBoost;
 }
 
+/** Clamp a requested target to the floors represented by this model. */
+export function clampTargetFloor(floor: number): number {
+  const minFloor = FLOORS[0][0];
+  const maxFloor = FLOORS[FLOORS.length - 1][0];
+  // A malformed imported value must not make downstream budget loops NaN.
+  if (Number.isNaN(floor)) return minFloor;
+  return Math.max(minFloor, Math.min(maxFloor, floor));
+}
+
+/** Dynamic progression target for a particular simulated shroud state. */
+export function computeLabyrinthTargetFloor(
+  maxFloorNoShrouds: number,
+  shroudCount: number,
+  highestAchievedFloor: number = 0,
+): number {
+  const shroudTarget = maxFloorNoShrouds + (shroudCount >= 8 ? 3 : shroudCount >= 5 ? 2 : 1);
+  return clampTargetFloor(Math.max(highestAchievedFloor, shroudTarget));
+}
+
 export function floorClearFraction(maxClear: number, floorMin: number, floorMax: number): number {
   const rangeSize = floorMax - floorMin + 1;
   const clearable = Math.max(0, Math.min(floorMax, maxClear) - floorMin + 1);

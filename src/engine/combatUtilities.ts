@@ -259,7 +259,7 @@ class CombatUtilities {
     // -----------------------------------------------------------------------
     // 4. Hit chance & crit chance
     // -----------------------------------------------------------------------
-    let bonusCritChance = source.combatDetails.combatStats.criticalRate;
+    const bonusCritChance = source.combatDetails.combatStats.criticalRate;
     const bonusCritDamage = source.combatDetails.combatStats.criticalDamage;
 
     if (abilityEffect) {
@@ -570,8 +570,8 @@ class CombatUtilities {
     // 16. Curse (expected damageTaken contribution per attack)
     // -----------------------------------------------------------------------
     // Curse is applied on every hit (auto-attack and ability) if source has
-    // curse stat > 0.  The curse proc chance for abilities is
-    // 100 / (100 + tenacity); for auto-attacks it always procs on hit.
+    // curse stat > 0. Unlike stun, blind and silence, it is not reduced by
+    // tenacity in the authoritative simulator.
     // Each proc adds +1 to the curse stack counter, and the buff applies
     // source.curse * stackCount as a flatBoost to damageTaken.
     //
@@ -579,18 +579,8 @@ class CombatUtilities {
     // to the curse damageTaken buff: hitChance * procChance * source.curse.
     let expectedCurseApplied = 0;
     if (source.combatDetails.combatStats.curse > 0) {
-      if (abilityEffect) {
-        // Ability hits: curse proc is gated by tenacity
-        expectedCurseApplied =
-          hitChance *
-          tenacityFactor *
-          source.combatDetails.combatStats.curse;
-      } else {
-        // Auto-attack hits: curse always procs on hit (no tenacity check
-        // in original auto-attack code path)
-        expectedCurseApplied =
-          hitChance * source.combatDetails.combatStats.curse;
-      }
+      expectedCurseApplied =
+        hitChance * source.combatDetails.combatStats.curse;
     }
 
     // -----------------------------------------------------------------------
@@ -683,7 +673,8 @@ class CombatUtilities {
   static processHeal(
     source: CombatUnit,
     abilityEffect: AbilityEffect,
-    target: CombatUnit
+    target: CombatUnit,
+    probability: number = 1
   ): number {
     if (abilityEffect.combatStyleHrid !== "/combat_styles/magic") {
       throw new Error(
@@ -703,8 +694,10 @@ class CombatUtilities {
     const maxHeal =
       healingAmplify * (baseHealRatio * magicMaxDamage + baseHealFlat);
 
-    // Deterministic: average of min and max
-    const heal = CombatUtilities.randomInt(minHeal, maxHeal);
+    // Deterministic: average of min and max.  Proc abilities (Bloom) only
+    // occur with `probability`; scale before adding so the target's HP is not
+    // accidentally healed by the full amount while only accounting a fraction.
+    const heal = CombatUtilities.randomInt(minHeal, maxHeal) * probability;
     const amountHealed = target.addHitpoints(heal);
 
     return amountHealed;
@@ -828,15 +821,9 @@ class CombatUtilities {
   // Deterministic helper: expected mayhem multiplier
   // ---------------------------------------------------------------------------
   /**
-   * Computes the expected number of targets hit by a mayhem proc.
-   * Mayhem hits all alive targets with probability `mayhemChance`, or just
-   * the primary target otherwise.  On a mayhem proc, if an attack misses
-   * a secondary target, the loop continues (miss doesn't stop mayhem).
-   * Only the last target gets a guaranteed attack on mayhem miss.
-   *
-   * For deterministic purposes:
-   *   E[targets] = mayhemChance * numAliveTargets + (1 - mayhemChance) * 1
-   *              = 1 + mayhemChance * (numAliveTargets - 1)
+   * Computes the expected number of targets attempted by Mayhem.  Mayhem is
+   * rolled once; on a proc, each miss advances to the next target and a hit
+   * ends the chain.
    *
    * @param mayhemChance - The probability of mayhem activating.
    * @param numAliveTargets - Number of alive enemy targets.
@@ -844,12 +831,21 @@ class CombatUtilities {
    */
   static expectedMayhemTargets(
     mayhemChance: number,
-    numAliveTargets: number
+    numAliveTargets: number,
+    hitChance: number = 0
   ): number {
-    if (mayhemChance <= 0 || numAliveTargets <= 1) {
-      return 1;
-    }
-    return 1 + mayhemChance * (numAliveTargets - 1);
+    if (mayhemChance <= 0 || numAliveTargets <= 1) return 1;
+
+    // Mayhem is a single proc per attack.  It advances only after misses, so
+    // retry k is reached with P(mayhem) × P(miss)^k.
+    const missChance = Math.max(0, Math.min(1, 1 - hitChance));
+    if (missChance === 1) return 1 + mayhemChance * (numAliveTargets - 1);
+    return (
+      1 +
+      mayhemChance *
+        (missChance * (1 - Math.pow(missChance, numAliveTargets - 1))) /
+          (1 - missChance)
+    );
   }
 
   // ---------------------------------------------------------------------------
