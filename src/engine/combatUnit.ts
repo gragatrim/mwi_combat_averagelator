@@ -219,8 +219,24 @@ class CombatUnit {
   abilities: (Ability | null)[] = [null, null, null, null];
   food: (Consumable | null)[] = [null, null, null];
   drinks: (Consumable | null)[] = [null, null, null];
-  houseRooms: Array<{ hrid: string; level: number; buffs: Buff[] }> = [];
-  achievements: { buffs: Buff[] } | null = null;
+  houseRooms: Array<{
+    hrid: string;
+    level: number;
+    /** All room buffs, retained for result/UI inspection. */
+    buffs: Buff[];
+    actionBuffs: Buff[];
+    globalBuffs: Buff[];
+    usableInActionTypeMap: Record<string, boolean>;
+  }> = [];
+  achievements: {
+    buffs: Buff[];
+    entries: Array<{
+      buff: Buff;
+      usableInActionTypeMap: Record<string, boolean>;
+    }>;
+  } | null = null;
+  /** Root action whose scoped permanent buffs should apply. */
+  actionTypeHrid: string = "/action_types/combat";
   dropTable: DropEntry[] = [];
   rareDropTable: DropEntry[] = [];
   abilityManaCosts: Map<string, number> = new Map();
@@ -494,6 +510,8 @@ class CombatUnit {
       this.getBuffBoost("/buff_types/elemental_thorns").flatBoost;
     this.combatDetails.combatStats.combatExperience +=
       this.getBuffBoost("/buff_types/wisdom").flatBoost;
+    this.combatDetails.combatStats.combatExperience +=
+      this.getBuffBoost("/buff_types/combat_experience").flatBoost;
     this.combatDetails.combatStats.criticalRate +=
       this.getBuffBoost("/buff_types/critical_rate").flatBoost;
     this.combatDetails.combatStats.criticalDamage +=
@@ -623,14 +641,17 @@ class CombatUnit {
   generatePermanentBuffs(): void {
     for (let i = 0; i < this.houseRooms.length; i++) {
       const houseRoom = this.houseRooms[i];
-      houseRoom.buffs.forEach((buff) => {
-        this.addPermanentBuff(buff);
-      });
+      houseRoom.globalBuffs.forEach((buff) => this.addPermanentBuff(buff));
+      if (houseRoom.usableInActionTypeMap[this.actionTypeHrid]) {
+        houseRoom.actionBuffs.forEach((buff) => this.addPermanentBuff(buff));
+      }
     }
 
     if (this.achievements) {
-      this.achievements.buffs.forEach((buff) => {
-        this.addPermanentBuff(buff);
+      this.achievements.entries.forEach(({ buff, usableInActionTypeMap }) => {
+        if (usableInActionTypeMap[this.actionTypeHrid]) {
+          this.addPermanentBuff(buff);
+        }
       });
     }
     if (this.zoneBuffs) {

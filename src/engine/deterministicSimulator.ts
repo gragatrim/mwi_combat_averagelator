@@ -291,6 +291,9 @@ class DeterministicSimulator {
     if (this.config.isLabyrinth) {
       for (const player of this.players) {
         player.suppressTaskDamage = true;
+        // House and achievement action buffs are scoped by the game's root
+        // action type. Combat-only buffs do not apply inside labyrinth.
+        player.actionTypeHrid = "/action_types/labyrinth";
       }
     }
 

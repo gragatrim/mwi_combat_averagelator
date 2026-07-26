@@ -62,6 +62,8 @@ export interface FullCharacterData {
   labyrinthMonsterLoadouts: Record<string, string>;
   /** Permanent labyrinth combat upgrade levels (token-purchased). */
   labyrinthUpgrades: LabyrinthUpgradeState;
+  /** Whether the export included characterInfo, the source of upgrade levels. */
+  hasLabyrinthUpgradeData: boolean;
   /** All trained ability hrids → levels (from characterAbilities). */
   abilityLevels: Map<string, number>;
   /** Equipment slot → unique items across all combat loadouts. */
@@ -227,11 +229,16 @@ export function parseFullCharacterData(
   }
 
   // --- Labyrinth crate state ---
+  // Privacy-filtered exports omit `labyrinth`. In that format, use the best
+  // owned crate as a practical default instead of silently selecting "none".
   const lab = data.labyrinth ?? {};
   const labyrinthCrates = {
-    coffeeCrate: lab.coffeeCrateItemHrid ?? "",
-    foodCrate: lab.foodCrateItemHrid ?? "",
-    teaCrate: lab.teaCrateItemHrid ?? "",
+    coffeeCrate:
+      lab.coffeeCrateItemHrid ?? findBestOwnedCrate(data.characterItems, "coffee"),
+    foodCrate:
+      lab.foodCrateItemHrid ?? findBestOwnedCrate(data.characterItems, "food"),
+    teaCrate:
+      lab.teaCrateItemHrid ?? findBestOwnedCrate(data.characterItems, "tea"),
   };
 
   // --- Labyrinth per-monster loadout assignments ---
@@ -245,6 +252,18 @@ export function parseFullCharacterData(
 
   // --- Permanent labyrinth combat upgrades ---
   const ci = (data.characterInfo ?? {}) as Record<string, unknown>;
+  const labyrinthUpgradeKeys = [
+    "labyrinthCombatDamageLevel",
+    "labyrinthAttackSpeedLevel",
+    "labyrinthCastSpeedLevel",
+    "labyrinthCriticalRateLevel",
+    "labyrinthExperienceLevel",
+    "labyrinthSkillActionSpeedLevel",
+    "labyrinthSkillingEfficiencyLevel",
+    "labyrinthSkillingSuccessLevel",
+    "labyrinthSkillingDoubleProgressLevel",
+  ];
+  const hasLabyrinthUpgradeData = labyrinthUpgradeKeys.every((key) => key in ci);
   const num = (k: string): number => Math.max(0, Number(ci[k]) || 0);
   const labyrinthUpgrades: LabyrinthUpgradeState = {
     combatDamage:        num("labyrinthCombatDamageLevel"),
@@ -258,7 +277,36 @@ export function parseFullCharacterData(
     skillDoubleProgress: num("labyrinthSkillingDoubleProgressLevel"),
   };
 
-  return { hrid, combatLoadouts, labyrinthCrates, labyrinthMonsterLoadouts, labyrinthUpgrades, abilityLevels, gearPool };
+  return {
+    hrid,
+    combatLoadouts,
+    labyrinthCrates,
+    labyrinthMonsterLoadouts,
+    labyrinthUpgrades,
+    hasLabyrinthUpgradeData,
+    abilityLevels,
+    gearPool,
+  };
+}
+
+/** Pick the highest-tier owned crate when a privacy-filtered export omits the active selection. */
+function findBestOwnedCrate(
+  characterItems: unknown,
+  kind: "coffee" | "food" | "tea"
+): string {
+  if (!Array.isArray(characterItems)) return "";
+
+  const tiers = ["expert", "advanced", "basic"];
+  for (const tier of tiers) {
+    const wanted = `/items/${tier}_${kind}_crate`;
+    const owned = characterItems.some((raw) => {
+      if (!raw || typeof raw !== "object") return false;
+      const item = raw as Record<string, unknown>;
+      return item.itemHrid === wanted && Number(item.count ?? 0) > 0;
+    });
+    if (owned) return wanted;
+  }
+  return "";
 }
 
 // =============================================================================

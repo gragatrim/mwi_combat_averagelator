@@ -73,6 +73,18 @@ const FOOD_OPTIONS: { value: CrateTier; label: string; desc: string }[] = [
   { value: "expert", label: "Expert", desc: "+6% regen" },
 ];
 
+const EMPTY_LAB_UPGRADES: LabyrinthUpgradeState = {
+  combatDamage: 0,
+  attackSpeed: 0,
+  castSpeed: 0,
+  criticalRate: 0,
+  experience: 0,
+  skillSpeed: 0,
+  skillEfficiency: 0,
+  skillSuccess: 0,
+  skillDoubleProgress: 0,
+};
+
 const CLEAR_RATE_OPTIONS: { value: number; label: string; desc: string }[] = [
   { value: 0.1, label: "10%", desc: "~7% higher" },
   { value: 0.33, label: "33%", desc: "~2% higher" },
@@ -127,6 +139,9 @@ export default function LabyrinthPanel({
     message: string;
   }>({ type: "idle", message: "" });
   const [charData, setCharData] = useState<FullCharacterData | null>(null);
+  const [labUpgrades, setLabUpgrades] = useState<LabyrinthUpgradeState>(
+    EMPTY_LAB_UPGRADES
+  );
   const [showImport, setShowImport] = useState(true);
 
   // --- Crate state ---
@@ -185,6 +200,7 @@ export default function LabyrinthPanel({
     try {
       const parsed = parseFullCharacterData(jsonText, gameData);
       setCharData(parsed);
+      setLabUpgrades(parsed.labyrinthUpgrades);
 
       // Also expose raw JSON for floor analysis
       try {
@@ -244,8 +260,8 @@ export default function LabyrinthPanel({
       }
     }
 
-    onRun(defaultLoadout.config, coffeeCrate, foodCrate, loadoutMap, successRate, loadoutNameMap, defaultLoadout.name, charData?.labyrinthUpgrades ?? null);
-  }, [defaultLoadout, monsterOverrides, loadouts, coffeeCrate, foodCrate, successRate, onRun, charData]);
+    onRun(defaultLoadout.config, coffeeCrate, foodCrate, loadoutMap, successRate, loadoutNameMap, defaultLoadout.name, labUpgrades);
+  }, [defaultLoadout, monsterOverrides, loadouts, coffeeCrate, foodCrate, successRate, onRun, labUpgrades]);
 
   // --- Optimizer handlers ---
   const handleOptimize = useCallback(() => {
@@ -303,7 +319,7 @@ export default function LabyrinthPanel({
       monsterOverrides,
       coffeeCrate,
       foodCrate,
-      labUpgrades: charData.labyrinthUpgrades,
+      labUpgrades,
       wisdomBuffBonus: computeWisdomBuffBonus(xpBonuses),
       gameData,
       successRate,
@@ -313,7 +329,7 @@ export default function LabyrinthPanel({
       ownedBackOnly,
     };
     worker.postMessage(startMsg);
-  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities, singleMonsterHrid, ownedBackOnly]);
+  }, [charData, defaultLoadout, defaultLoadoutId, monsterOverrides, coffeeCrate, foodCrate, labUpgrades, xpBonuses, gameData, successRate, bestGearMode, useBestAbilities, singleMonsterHrid, ownedBackOnly]);
 
   const handleCancelOptimize = useCallback(() => {
     if (optWorkerRef.current) {
@@ -342,9 +358,9 @@ export default function LabyrinthPanel({
       successRate,
       loadoutNameMap,
       defaultLoadout.name,
-      charData?.labyrinthUpgrades ?? null
+      labUpgrades
     );
-  }, [optResult, defaultLoadout, coffeeCrate, foodCrate, successRate, onRun, charData]);
+  }, [optResult, defaultLoadout, coffeeCrate, foodCrate, successRate, onRun, labUpgrades]);
 
   const canRun = !!defaultLoadout && !isRunning && !optRunning;
   const canOptimize = !!charData && !!defaultLoadout && !isRunning && !optRunning;
@@ -584,6 +600,8 @@ export default function LabyrinthPanel({
       {/* ================================================================= */}
       <ActiveBuffsPanel
         charData={charData}
+        upgrades={labUpgrades}
+        onUpgradesChange={setLabUpgrades}
         coffeeCrate={coffeeCrate}
         foodCrate={foodCrate}
         xpBonuses={xpBonuses}
@@ -1155,18 +1173,61 @@ function BuffRow({ label, value, dim = false }: { label: string; value: string; 
   );
 }
 
+function UpgradeRow({
+  label,
+  upgradeKey,
+  levels,
+  onChange,
+  perLevel = 0.01,
+}: {
+  label: string;
+  upgradeKey: keyof LabyrinthUpgradeState;
+  levels: LabyrinthUpgradeState;
+  onChange: (levels: LabyrinthUpgradeState) => void;
+  perLevel?: number;
+}) {
+  const level = levels[upgradeKey];
+  return (
+    <div className="flex items-center justify-between text-[11px]">
+      <span className="text-gray-400">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <span className={level > 0 ? "text-gray-300 tabular-nums" : "text-gray-600"}>
+          {level > 0 ? pct(perLevel * level) : "—"}
+        </span>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={level}
+          aria-label={`${label} labyrinth upgrade level`}
+          onChange={(event) =>
+            onChange({
+              ...levels,
+              [upgradeKey]: Math.max(0, Math.floor(Number(event.target.value) || 0)),
+            })
+          }
+          className="w-12 rounded border border-gray-600 bg-gray-900 px-1 py-0.5 text-center text-[11px] text-gray-200 focus:border-blue-500 focus:outline-none"
+        />
+      </div>
+    </div>
+  );
+}
+
 function ActiveBuffsPanel({
   charData,
+  upgrades,
+  onUpgradesChange,
   coffeeCrate,
   foodCrate,
   xpBonuses,
 }: {
   charData: FullCharacterData | null;
+  upgrades: LabyrinthUpgradeState;
+  onUpgradesChange: (levels: LabyrinthUpgradeState) => void;
   coffeeCrate: CrateTier;
   foodCrate: CrateTier;
   xpBonuses: XpBonusSettings;
 }) {
-  const upgrades = charData?.labyrinthUpgrades;
   const coffeeBoost = COFFEE_LEVEL_BOOST[coffeeCrate];
   const coffeeBuffs = COFFEE_COMBAT_BUFFS[coffeeCrate];
   const foodRegen = FOOD_REGEN[foodCrate];
@@ -1184,30 +1245,37 @@ function ActiveBuffsPanel({
         Active Buffs (Lab)
       </h2>
 
-      {/* Permanent labyrinth upgrades from char data — combat */}
+      {charData && !charData.hasLabyrinthUpgradeData && (
+        <div className="rounded border border-amber-800/60 bg-amber-950/30 p-2 text-[10px] leading-relaxed text-amber-300">
+          This privacy-filtered export does not include labyrinth upgrade levels.
+          Enter the levels below; leaving them at 0 would omit those buffs.
+        </div>
+      )}
+
+      {/* Permanent labyrinth upgrades from char data, or manual values when omitted. */}
       <div>
-        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+        <div className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">
           Combat Upgrades {charData ? "" : "(import char data)"}
         </div>
-        <div className="space-y-0.5">
-          <BuffRow label="Combat Damage"  value={upgrades ? pct(0.01 * upgrades.combatDamage) + ` (lv ${upgrades.combatDamage})` : "—"} dim={!upgrades || upgrades.combatDamage === 0} />
-          <BuffRow label="Attack Speed"   value={upgrades ? pct(0.01 * upgrades.attackSpeed)  + ` (lv ${upgrades.attackSpeed})`  : "—"} dim={!upgrades || upgrades.attackSpeed === 0} />
-          <BuffRow label="Cast Speed"     value={upgrades ? pct(0.01 * upgrades.castSpeed)    + ` (lv ${upgrades.castSpeed})`    : "—"} dim={!upgrades || upgrades.castSpeed === 0} />
-          <BuffRow label="Critical Rate"  value={upgrades ? pct(0.01 * upgrades.criticalRate) + ` (lv ${upgrades.criticalRate})` : "—"} dim={!upgrades || upgrades.criticalRate === 0} />
-          <BuffRow label="Combat XP"      value={upgrades ? pct(0.01 * upgrades.experience)   + ` (lv ${upgrades.experience})`   : "—"} dim={!upgrades || upgrades.experience === 0} />
+        <div className="space-y-1">
+          <UpgradeRow label="Combat Damage" upgradeKey="combatDamage" levels={upgrades} onChange={onUpgradesChange} />
+          <UpgradeRow label="Attack Speed" upgradeKey="attackSpeed" levels={upgrades} onChange={onUpgradesChange} />
+          <UpgradeRow label="Cast Speed" upgradeKey="castSpeed" levels={upgrades} onChange={onUpgradesChange} />
+          <UpgradeRow label="Critical Rate" upgradeKey="criticalRate" levels={upgrades} onChange={onUpgradesChange} />
+          <UpgradeRow label="Combat XP" upgradeKey="experience" levels={upgrades} onChange={onUpgradesChange} />
         </div>
       </div>
 
       {/* Skill upgrades */}
       <div>
-        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+        <div className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">
           Skilling Upgrades {charData ? "" : "(import char data)"}
         </div>
-        <div className="space-y-0.5">
-          <BuffRow label="Action Speed"     value={upgrades ? pct(0.01  * upgrades.skillSpeed)          + ` (lv ${upgrades.skillSpeed})`          : "—"} dim={!upgrades || upgrades.skillSpeed === 0} />
-          <BuffRow label="Efficiency"       value={upgrades ? pct(0.01  * upgrades.skillEfficiency)     + ` (lv ${upgrades.skillEfficiency})`     : "—"} dim={!upgrades || upgrades.skillEfficiency === 0} />
-          <BuffRow label="Success Rate"     value={upgrades ? pct(0.005 * upgrades.skillSuccess)        + ` (lv ${upgrades.skillSuccess})`        : "—"} dim={!upgrades || upgrades.skillSuccess === 0} />
-          <BuffRow label="Double Progress"  value={upgrades ? pct(0.01  * upgrades.skillDoubleProgress) + ` (lv ${upgrades.skillDoubleProgress})` : "—"} dim={!upgrades || upgrades.skillDoubleProgress === 0} />
+        <div className="space-y-1">
+          <UpgradeRow label="Action Speed" upgradeKey="skillSpeed" levels={upgrades} onChange={onUpgradesChange} />
+          <UpgradeRow label="Efficiency" upgradeKey="skillEfficiency" levels={upgrades} onChange={onUpgradesChange} />
+          <UpgradeRow label="Success Rate" upgradeKey="skillSuccess" levels={upgrades} onChange={onUpgradesChange} perLevel={0.005} />
+          <UpgradeRow label="Double Progress" upgradeKey="skillDoubleProgress" levels={upgrades} onChange={onUpgradesChange} />
         </div>
       </div>
 

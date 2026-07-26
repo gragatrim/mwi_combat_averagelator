@@ -25,6 +25,7 @@ interface SerializedCharData {
   labyrinthCrates: FullCharacterData["labyrinthCrates"];
   labyrinthMonsterLoadouts: FullCharacterData["labyrinthMonsterLoadouts"];
   labyrinthUpgrades: LabyrinthUpgradeState;
+  hasLabyrinthUpgradeData: boolean;
   abilityLevels: Record<string, number>;
   gearPool: Record<string, EquipmentDTO[]>;
 }
@@ -83,6 +84,7 @@ export function serializeCharData(
     labyrinthCrates: charData.labyrinthCrates,
     labyrinthMonsterLoadouts: charData.labyrinthMonsterLoadouts,
     labyrinthUpgrades: charData.labyrinthUpgrades,
+    hasLabyrinthUpgradeData: charData.hasLabyrinthUpgradeData,
     abilityLevels: Object.fromEntries(charData.abilityLevels),
     gearPool: Object.fromEntries(charData.gearPool),
   };
@@ -95,6 +97,7 @@ function deserializeCharData(raw: SerializedCharData): FullCharacterData {
     labyrinthCrates: raw.labyrinthCrates,
     labyrinthMonsterLoadouts: raw.labyrinthMonsterLoadouts,
     labyrinthUpgrades: raw.labyrinthUpgrades,
+    hasLabyrinthUpgradeData: raw.hasLabyrinthUpgradeData,
     abilityLevels: new Map(Object.entries(raw.abilityLevels)),
     gearPool: new Map(Object.entries(raw.gearPool)),
   };

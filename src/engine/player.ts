@@ -134,27 +134,37 @@ class Player extends CombatUnit {
         if (!gameHouseRoom) {
           throw new Error("No house room found for hrid: " + hrid);
         }
-        const buffs: Buff[] = [];
-        if (gameHouseRoom.actionBuffs) {
-          for (const actionBuff of gameHouseRoom.actionBuffs) {
-            buffs.push(new Buff(actionBuff, level));
-          }
-        }
-        if (gameHouseRoom.globalBuffs) {
-          for (const globalBuff of gameHouseRoom.globalBuffs) {
-            buffs.push(new Buff(globalBuff, level));
-          }
-        }
-        player.houseRooms.push({ hrid, level, buffs });
+        const actionBuffs = (gameHouseRoom.actionBuffs ?? []).map(
+          (buff) => new Buff(buff, level)
+        );
+        const globalBuffs = (gameHouseRoom.globalBuffs ?? []).map(
+          (buff) => new Buff(buff, level)
+        );
+        player.houseRooms.push({
+          hrid,
+          level,
+          buffs: [...actionBuffs, ...globalBuffs],
+          actionBuffs,
+          globalBuffs,
+          usableInActionTypeMap: gameHouseRoom.usableInActionTypeMap ?? {},
+        });
       }
     });
 
     // Achievements: determine which tier buffs have been fully earned
     const achievementBuffs: Buff[] = [];
+    const achievementEntries: Array<{
+      buff: Buff;
+      usableInActionTypeMap: Record<string, boolean>;
+    }> = [];
     for (const tier of Object.values(
       gameData.achievementTierDetailMap as Record<
         string,
-        { hrid: string; buff: BuffData }
+        {
+          hrid: string;
+          buff: BuffData;
+          usableInActionTypeMap: Record<string, boolean>;
+        }
       >
     )) {
       let isGetAll = true;
@@ -171,10 +181,18 @@ class Player extends CombatUnit {
         }
       }
       if (isGetAll) {
-        achievementBuffs.push(new Buff(tier.buff));
+        const buff = new Buff(tier.buff);
+        achievementBuffs.push(buff);
+        achievementEntries.push({
+          buff,
+          usableInActionTypeMap: tier.usableInActionTypeMap ?? {},
+        });
       }
     }
-    player.achievements = { buffs: achievementBuffs };
+    player.achievements = {
+      buffs: achievementBuffs,
+      entries: achievementEntries,
+    };
 
     player.debuffOnLevelGap = dto.debuffOnLevelGap;
 
