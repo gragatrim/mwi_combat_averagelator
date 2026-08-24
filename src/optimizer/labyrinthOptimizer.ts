@@ -171,13 +171,36 @@ const AMPLIFY_BUFF_TO_DAMAGE_TYPE: Record<string, string> = {
 };
 
 /**
+ * Target types that require an ally other than the caster. The labyrinth is
+ * 1v1, so an ability whose effects all point at one of these can never fire —
+ * Revive is the notable case: it targets a dead ally, and the caster can't be
+ * both dead and casting.
+ */
+const SOLO_UNUSABLE_TARGET_TYPES = new Set(["deadAlly"]);
+
+/**
+ * Check whether an ability can do anything at all in a 1v1 labyrinth fight.
+ * Party-only abilities are excluded from the candidate pool so the optimizer
+ * never suggests them: they are pure no-ops here, so they tie with every other
+ * option and would otherwise win an arbitrary tie-break.
+ */
+export function isAbilityUsableSolo(abilityHrid: string, gameData: GameData): boolean {
+  const ability = gameData.abilityDetailMap[abilityHrid];
+  if (!ability) return false;
+  return ability.abilityEffects.some(
+    (e: AbilityEffectData) => !SOLO_UNUSABLE_TARGET_TYPES.has(e.targetType)
+  );
+}
+
+/**
  * Check if an ability is compatible with a weapon's combat style and damage type.
  * An ability is compatible if:
+ * - It's usable at all in a 1v1 fight (see isAbilityUsableSolo), AND
  * - It's a damage ability whose combatStyleHrid matches the weapon, OR
  * - It's a buff ability with amplify buffs matching the weapon's damage type, OR
- * - It's a buff ability with no amplify buffs (heal, revive, etc. — truly style-agnostic)
+ * - It's a buff ability with no amplify buffs (heal, auras — truly style-agnostic)
  */
-function isAbilityCompatible(
+export function isAbilityCompatible(
   abilityHrid: string,
   weaponCombatStyle: string | null,
   weaponDamageType: string | null,
@@ -185,6 +208,7 @@ function isAbilityCompatible(
 ): boolean {
   const ability = gameData.abilityDetailMap[abilityHrid];
   if (!ability) return false;
+  if (!isAbilityUsableSolo(abilityHrid, gameData)) return false;
 
   const damageEffects = ability.abilityEffects.filter(
     (e: AbilityEffectData) => e.effectType === "/ability_effect_types/damage"
@@ -763,10 +787,11 @@ export function optimizeLabyrinthLoadouts(
         // Set best ability for this slot and mark it as used
         config.abilities[slot] = bestAbility;
         if (bestAbility?.hrid) usedAbilities.add(bestAbility.hrid);
-        if (bestLevel > currentLevel) {
-          currentLevel = bestLevel;
-          currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
-        }
+        // Record unconditionally: a candidate can win on the kill-time
+        // tie-break without raising the level, and leaving currentResult on the
+        // old, slower config makes every later kill-time comparison bogus.
+        currentLevel = bestLevel;
+        currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
       }
 
 
@@ -889,10 +914,8 @@ export function optimizeLabyrinthLoadouts(
         }
 
         config.specialAbility = bestSpecial;
-        if (bestLevel > currentLevel) {
-          currentLevel = bestLevel;
-          currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
-        }
+        currentLevel = bestLevel;
+        currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
       }
 
       // --- Optimize non-weapon gear (greedy) ---
@@ -967,10 +990,8 @@ export function optimizeLabyrinthLoadouts(
         }
 
         config.equipment[slot as EquipmentSlotHrid] = bestItem;
-        if (bestLevel > currentLevel) {
-          currentLevel = bestLevel;
-          currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
-        }
+        currentLevel = bestLevel;
+        currentResult = { maxLevel: bestLevel, killTimeNs: bestKillTime };
       }
 
       // --- Re-optimize special ability after gear changes ---
@@ -1004,7 +1025,13 @@ export function optimizeLabyrinthLoadouts(
           if (
             probeLevel > bestLevel2 ||
             (probeLevel === bestLevel2 && probeKillTime < bestKillTime2) ||
-            (hadNoSpecial && !bestSpecial2 && probeLevel >= bestLevel2)
+            // Filling an empty special slot: a special that merely holds the
+            // current level still beats an empty slot in the real (random)
+            // game, so take it — but among such candidates keep the fastest
+            // rather than whichever happened to be enumerated first.
+            (hadNoSpecial &&
+              probeLevel >= bestLevel2 &&
+              (!bestSpecial2 || probeKillTime < bestKillTime2))
           ) {
             bestLevel2 = probeLevel;
             bestKillTime2 = probeKillTime;
@@ -1013,10 +1040,8 @@ export function optimizeLabyrinthLoadouts(
         }
 
         config.specialAbility = bestSpecial2;
-        if (bestLevel2 > currentLevel) {
-          currentLevel = bestLevel2;
-          currentResult = { maxLevel: bestLevel2, killTimeNs: bestKillTime2 };
-        }
+        currentLevel = bestLevel2;
+        currentResult = { maxLevel: bestLevel2, killTimeNs: bestKillTime2 };
       }
 
       // Final re-check with full binary search to get accurate max
